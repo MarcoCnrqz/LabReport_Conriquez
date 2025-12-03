@@ -1,0 +1,108 @@
+/* === Centrado y fondo === */
+body.login {
+    background-color: #0d64ba;
+    font-family: 'Arial', sans-serif;
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+/* Centrado del contenedor padre */
+body.login #container {
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+}
+
+body.login #content {
+    width: auto;
+    padding: 0;
+    margin: 0;
+}
+
+/* === Caja del login === */
+#content-main {
+    background: #ffffff;
+    border-radius: 15px;
+    padding: 60px 45px;
+    width: 400px;
+    box-shadow: 0 5px 20px rgba(6, 6, 6, 0.4);
+}
+
+/* === Logo y título === */
+.login-logo {
+    text-align: center;
+    margin-bottom: 10px;
+}
+
+.login-logo .logo {
+    max-height: 150px;
+}
+
+.login-title {
+    text-align: center;
+    font-size: 50px;
+    color: #0d64ba;
+    margin-bottom: 20px;
+    font-family: sans-serif;
+    font-weight: bold;
+}
+
+/* === Formulario === */
+#login-form .form-row {
+    margin-bottom: 30px;
+}
+
+#login-form label {
+    color: #0d64ba;
+    font-weight: bold;
+}
+
+#login-form input {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid #579bba;
+    border-radius: 5px;
+    background-color: #eae7e7;
+    color: #0d64ba;
+    box-shadow: 0 5px 20px rgba(3, 2, 2, 0.2);
+}
+
+/* Botón login */
+#login-form input[type="submit"] {
+    background-color: #0d64ba;
+    color: #ffffff;
+    font-size: 20px;
+    font-weight: bold;
+    border: none;
+    cursor: pointer;
+    padding: 10px;
+    border-radius: 5px;
+    width: 100%;
+    transition: background 0.3s;
+}
+
+#login-form input[type="submit"]:hover {
+    background-color: #0559a7;
+}
+
+/* Link olvidar contraseña */
+.password-reset-link {
+    text-align: center;
+    margin-bottom: 15px;
+}
+
+.password-reset-link a {
+    color: #0d64ba;
+    text-decoration: none;
+    font-size: 0.9rem;
+}
+
+.password-reset-link a:hover {
+    text-decoration: underline;
+}
+

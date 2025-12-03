@@ -1,0 +1,7 @@
+{% extends "admin/base.html" %}
+
+{% block userlinks %}
+    <a href="{% url 'inicio' %}">Ver sitio</a> /
+    <a href="{% url 'admin:password_change' %}">Cambiar contraseña</a> /
+    <a href="{% url 'admin:logout' %}">Cerrar sesión</a>
+{% endblock %}

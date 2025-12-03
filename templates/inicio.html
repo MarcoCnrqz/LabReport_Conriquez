@@ -1,0 +1,287 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Laboratorio Clínico ICE - Información</title>
+    <style>
+        /* Definición de Paleta de Colores
+        -- Primary Blue (Fuerte): #0d47a1
+        -- Accent Blue (Medio): #1976d2
+        -- Light Blue (Fondo): #e3f2fd
+        -- Light Green (Panel Fondo): #f1fff8 */
+
+        /* Estilos Generales */
+        body {
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color:#d3dd26; /* Fondo verde brillante original del usuario */
+            color: #333;
+        }
+
+        /* Contenedor tipo Tarjeta - FONDO VERDE CLARO */
+        .card {
+            background: #f1fff8; /* Verde Claro/Menta */
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+            text-align: center;
+            width: 90%;
+            max-width: 500px;
+            margin: 20px 0;
+            border: 1px solid #d4e9e2;
+        }
+
+        /* LOGO */
+        .login-logo {
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: center;
+        }
+
+        .logo {
+            max-width: 180px;
+            height: auto;
+            display: block;
+        }
+
+        /* Títulos */
+        h1 {
+            color: #0d47a1;
+            margin-bottom: 5px;
+            font-size: 26px;
+        }
+
+        p.subtitle {
+            color: #546e7a;
+            margin-top: 0;
+            margin-bottom: 25px;
+            font-size: 16px;
+            font-weight: 500;
+        }
+
+        /* --- MISION DE LA EMPRESA --- */
+        .mission-section {
+            margin-bottom: 25px;
+            padding: 15px;
+            background-color: #ffffff; 
+            border-radius: 10px;
+            border-left: 5px solid #1976d2; 
+            text-align: left;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+        }
+        
+        .mission-text {
+            font-style: italic;
+            color: #455a64;
+            font-size: 15px;
+            line-height: 1.5;
+            margin-top: 5px;
+        }
+        /* Fin Mision */
+
+        /* Sección de Servicios y Análisis */
+        .services-section {
+            text-align: left;
+            margin-bottom: 25px;
+        }
+
+        .section-title {
+            font-size: 18px;
+            color: #1976d2;
+            border-bottom: 2px solid #e3f2fd;
+            padding-bottom: 5px;
+            margin-bottom: 15px;
+            font-weight: bold;
+        }
+
+        .analysis-list {
+            list-style: none;
+            padding: 0;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        /* Análisis (Mantiene el azul claro) */
+        .analysis-list li {
+            background-color: #e3f2fd; /* Azul muy claro */
+            color: #1565c0;
+            padding: 8px 10px;
+            border-radius: 8px;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+        }
+
+        .analysis-list li::before {
+            content: "•";
+            color: #1976d2;
+            font-weight: bold;
+            display: inline-block;
+            width: 1em;
+            margin-right: 5px;
+        }
+
+        /* Sección de Info (Ubicación y Horario) */
+        .info-box {
+            background-color: #fafafa;
+            border: 1px solid #eee;
+            border-radius: 12px;
+            padding: 15px;
+            margin-bottom: 15px;
+            text-align: left;
+        }
+        
+        /* HORARIOS DE ATENCIÓN - AHORA AZUL CLARO */
+        .hours-box {
+             background-color: #e3f2fd; 
+             border-color: #bbdefb;
+        }
+        
+        .hours-title {
+            color: #0d47a1 !important; 
+        }
+        /* Fin Horarios */
+
+        .info-item {
+            display: flex;
+            margin-bottom: 10px;
+            align-items: flex-start;
+        }
+
+        .info-text strong {
+            display: block;
+            color: #37474f;
+            font-size: 14px;
+        }
+
+        .info-text span {
+            color: #607d8b;
+            font-size: 13px;
+            display: block;
+            line-height: 1.4;
+        }
+
+        /* REDES SOCIALES - BOTONES AZUL CLARO */
+        .social-section {
+            margin-top: 25px;
+            border-top: 1px solid #d4e9e2; 
+            padding-top: 20px;
+        }
+        
+        .social-links {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+        }
+
+        .social-btn {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 55px;
+            height: 55px;
+            border-radius: 50%;
+            background-color: #e3f2fd; /* Fondo Azul Claro */
+            text-decoration: none;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            transition: all 0.3s ease;
+            /* Eliminamos color: #1976d2; ya que ahora es una imagen */
+        }
+        
+        /* Estilo para las imágenes dentro de los botones */
+        .social-btn img {
+            width: 30px; /* Tamaño de la imagen dentro del botón */
+            height: 30px;
+            /* Si las imágenes son PNG transparentes, se verán sobre el fondo azul claro */
+        }
+
+
+        .social-btn:hover {
+            transform: translateY(-3px) scale(1.05);
+            background-color: #bbdefb; /* Azul un poco más oscuro al pasar el mouse */
+        }
+
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <div class="login-logo">
+            <img src="{% static 'admin/LogoICE.png' %}" alt="Logo Laboratorio ICE" class="logo">
+        </div>
+
+        <h1>Laboratorio Clínico ICE</h1>
+        <p class="subtitle">Especialistas en Hematología y Análisis Clínicos</p>
+
+        <div class="mission-section">
+            <div class="section-title" style="color:#0d47a1; border-bottom:none; margin-bottom: 0;">Nuestra Misión</div>
+            <p class="mission-text">
+                Por 9 Años, Laboratorio Clínico ICE ha estado al servicio de la comunidad, llevando bienestar y tranquilidad a través de análisis rigurosos, confiables y con la más alta tecnología. Nuestro compromiso es con su salud, ofreciendo resultados precisos con la calidez y el profesionalismo que nos caracteriza.
+            </p>
+        </div>
+
+        <div class="services-section">
+            <div class="section-title">Nuestros Análisis y Servicios</div>
+            <ul class="analysis-list">
+                <li>Química Sanguínea</li>
+                <li>Examen General de Orina</li>
+                <li>Perfil de Lípidos</li>
+                <li>Antígeno Prostático</li>
+                <li>Exámenes Ginecológicos</li>
+                <li>Especialista en Hematología</li>
+            </ul>
+        </div>
+
+        <div class="info-box">
+            <div class="section-title" style="border:none; margin-bottom:10px; padding:0;">📍 Ubicaciones</div>
+            
+            <div class="info-item">
+                <span class="info-icon">🏥</span>
+                <div class="info-text">
+                    <strong>El Varal de Cabrera</strong>
+                    <span>Abasolo, Guanajuato</span>
+                </div>
+        </div>
+
+        <div class="info-box hours-box">
+            <div class="section-title hours-title" style="border:none; margin-bottom:10px; padding:0;">⏰ Horarios de Atención</div>
+            
+            <div class="info-item">
+                <span class="info-icon">📅</span>
+                <div class="info-text">
+                    <strong>Lunes a Viernes</strong>
+                    <span>7:00 AM - 5:00 PM</span>
+                </div>
+            </div>
+
+            <div class="info-item">
+                <span class="info-icon">☀️</span>
+                <div class="info-text">
+                    <strong>Sábados</strong>
+                    <span>7:00 AM - 3:00 PM</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="social-section">
+            <div class="social-links">
+                <a href="https://www.facebook.com/share/1AiAQF9zzK/" target="_blank" class="social-btn" title="Facebook">
+                    <img src="{% static 'admin/facebook.png' %}" alt="Logo Facebook"> 
+                </a>
+                
+                <a href="https://api.whatsapp.com/send?phone=%2B524696219290&fbclid=IwVERDUAOccapleHRuA2FlbQIxMABzcnRjBmFwcF9pZAwzNTA2ODU1MzE3MjgAAR7s1y2S9MkdthSSzyBUeD_DR6Y7B-E6ws8QLgsHqHmvxiQT_KdJoBHIf2ST5A_aem_QFHr6PDnZ12ufq3uQRkraQ" target="_blank" class="social-btn" title="WhatsApp">
+                    <img src="{% static 'admin/whatsapp.png' %}" alt="Logo WhatsApp">
+                </a>
+            </div>
+        </div>
+    </div>
+
+</body>
+</html>

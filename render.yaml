@@ -1,0 +1,37 @@
+# 1. SECCIÓN DE BASES DE DATOS (Debe ir separada de 'services')
+databases:
+  - name: LabConriquezBD
+    plan: free
+    region: oregon
+    databaseName: labconriquez # Opcional: nombre interno de la BD
+    user: labuser             # Opcional: nombre de usuario
+
+# 2. SECCIÓN DE SERVICIOS (Tu aplicación Django)
+services:
+  - type: web
+    name: LabConriquezSW
+    plan: free
+    region: oregon 
+    
+    # CORRECCIÓN: Para Dockerfile se usa 'runtime', no 'env'
+    runtime: docker
+    
+    branch: master
+    autoDeploy: true
+    numInstances: 1
+
+    # Opcional: Comando para migrar la BD automáticamente al desplegar
+    # postDeployCommand: "python manage.py migrate"
+    
+    # Variables de entorno
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: LabConriquezBD
+          property: connectionString
+      - key: WEB_HOST
+        value: LabConriquez.onrender.com
+      - key: SECRET_KEY
+        generateValue: true # Genera una clave segura automáticamente
+      - key: DEBUG
+        value: "False"

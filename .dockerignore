@@ -1,0 +1,22 @@
+# Ignorar carpeta de entorno virtual
+venv/
+env/
+
+# Ignorar base de datos local (se usará la de la nube)
+db.sqlite3
+
+# Ignorar archivos de sistema y cache de Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.DS_Store
+
+# Ignorar git
+.git/
+.gitignore
+
+# Ignorar archivos estáticos/media locales (se generarán o subirán allá)
+staticfiles/
+media/

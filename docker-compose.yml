@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  web:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      # CORRECCIÓN IMPORTANTE:
+      # En tu Dockerfile pusimos "WORKDIR /app". Aquí debe coincidir.
+      # Antes decía /usr/src/app y eso creaba carpetas dobles.
+      - .:/app
+    
+    # AQUÍ ESTÁ LA MAGIA PARA QUE NO SE BORREN LOS DATOS:
+    environment:
+      # Le decimos a Django: "Conéctate al servicio 'db' de abajo, no uses SQLite"
+      - DATABASE_URL=postgres://postgres:password@db:5432/postgres
+      - SECRET_KEY=clave-secreta-local-docker
+      - DEBUG=1
+
+    depends_on:
+      db:
+        condition: service_healthy 
+        
+    command: >
+      sh -c "python manage.py collectstatic --noinput &&
+             python manage.py migrate &&
+             gunicorn LabConriquez.wsgi:application --bind 0.0.0.0:8000"
+
+  db:
+    image: postgres:15-alpine
+    # ESTO ES LO QUE GUARDA TUS DATOS PARA SIEMPRE:
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    environment:
+      - POSTGRES_DB=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+    
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+# Definición del volumen persistente
+volumes:
+  postgres_data:
