@@ -16,7 +16,7 @@ services:
     # CORRECCIÓN: Para Dockerfile se usa 'runtime', no 'env'
     runtime: docker
     
-    branch: master
+    branch: main
     autoDeploy: true
     numInstances: 1
 
