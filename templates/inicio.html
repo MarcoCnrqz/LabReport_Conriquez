@@ -10,17 +10,19 @@
         -- Primary Blue (Fuerte): #0d47a1
         -- Accent Blue (Medio): #1976d2
         -- Light Blue (Fondo): #e3f2fd
-        -- Light Green (Panel Fondo): #f1fff8 */
+        -- Light Green (Panel Fondo): #f1fff8 
+        -- New Grey (Footer): #eeeeee */
 
         /* Estilos Generales */
         body {
             margin: 0;
             display: flex;
+            flex-direction: column; 
             justify-content: center;
             align-items: center;
             min-height: 100vh;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color:#d3dd26; /* Fondo verde brillante original del usuario */
+            background-color: #d3dd26; /* Fondo verde brillante original del usuario */
             color: #333;
         }
 
@@ -35,6 +37,7 @@
             max-width: 500px;
             margin: 20px 0;
             border: 1px solid #d4e9e2;
+            z-index: 1; 
         }
 
         /* LOGO */
@@ -65,30 +68,10 @@
             font-weight: 500;
         }
 
-        /* --- MISION DE LA EMPRESA --- */
-        .mission-section {
+        /* --- SECCIÓN PRINCIPAL (MISION, VISION, VALORES) --- */
+        .section-container {
             margin-bottom: 25px;
-            padding: 15px;
-            background-color: #ffffff; 
-            border-radius: 10px;
-            border-left: 5px solid #1976d2; 
             text-align: left;
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
-        }
-        
-        .mission-text {
-            font-style: italic;
-            color: #455a64;
-            font-size: 15px;
-            line-height: 1.5;
-            margin-top: 5px;
-        }
-        /* Fin Mision */
-
-        /* Sección de Servicios y Análisis */
-        .services-section {
-            text-align: left;
-            margin-bottom: 25px;
         }
 
         .section-title {
@@ -98,6 +81,71 @@
             padding-bottom: 5px;
             margin-bottom: 15px;
             font-weight: bold;
+        }
+        
+        /* Contenedor de Mision y Vision */
+        .mv-box {
+            background-color: #ffffff; 
+            border-radius: 12px;
+            border: 1px solid #bbdefb;
+            padding: 18px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
+        }
+        
+        .mv-item h3 {
+            color: #0d47a1;
+            font-size: 16px;
+            margin: 0 0 5px 0;
+            display: flex;
+            align-items: center;
+        }
+
+        .mv-item p {
+            color: #455a64;
+            font-size: 14px;
+            line-height: 1.5;
+            padding-left: 20px; /* Indentación para la descripción */
+            margin-bottom: 15px;
+            font-style: italic;
+        }
+        
+        /* Iconos MV */
+        .mv-item h3::before {
+            content: '\2605'; /* Estrella sólida compatible */
+            margin-right: 8px;
+            font-size: 18px;
+            color: #1976d2;
+        }
+        
+        /* Lista de Principios Fundamentales (Valores) */
+        .principles-list {
+            list-style: none;
+            padding: 0;
+        }
+
+        .principles-list li {
+            background-color: #e3f2fd; /* Azul muy claro */
+            color: #1565c0;
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            font-size: 14px;
+            border-left: 4px solid #1976d2; /* Barra azul para destacar */
+            line-height: 1.4;
+        }
+        
+        .principles-list li strong {
+            display: block;
+            color: #0d47a1;
+            margin-bottom: 3px;
+        }
+
+
+        /* Sección de Servicios y Análisis */
+        .services-section {
+            text-align: left;
+            margin-bottom: 25px;
         }
 
         .analysis-list {
@@ -120,7 +168,7 @@
         }
 
         .analysis-list li::before {
-            content: "•";
+            content: "\2022"; /* Entidad HTML para punto (bullet) */
             color: #1976d2;
             font-weight: bold;
             display: inline-block;
@@ -138,6 +186,42 @@
             text-align: left;
         }
         
+        /* Ubicación - Nuevo Estilo */
+        .location-box {
+            background-color: #ffffff; /* Fondo blanco */
+            border: 2px solid #1976d2; /* Borde azul medio */
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            transition: all 0.3s ease;
+        }
+
+        .location-box:hover {
+            border-color: #0d47a1;
+            box-shadow: 0 6px 15px rgba(0, 0, 0, 0.15);
+        }
+
+        .location-link {
+            text-decoration: none;
+            color: #1565c0;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+        }
+        
+        .location-link:hover {
+            color: #0d47a1;
+        }
+
+        .location-text {
+            line-height: 1.5;
+            margin-left: 10px;
+        }
+
+        .location-icon {
+            font-size: 24px;
+            color: #1976d2;
+            margin-right: 5px;
+        }
+
         /* HORARIOS DE ATENCIÓN - AHORA AZUL CLARO */
         .hours-box {
              background-color: #e3f2fd; 
@@ -192,20 +276,42 @@
             text-decoration: none;
             box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
             transition: all 0.3s ease;
-            /* Eliminamos color: #1976d2; ya que ahora es una imagen */
         }
         
-        /* Estilo para las imágenes dentro de los botones */
         .social-btn img {
-            width: 30px; /* Tamaño de la imagen dentro del botón */
+            width: 30px; 
             height: 30px;
-            /* Si las imágenes son PNG transparentes, se verán sobre el fondo azul claro */
         }
 
 
         .social-btn:hover {
             transform: translateY(-3px) scale(1.05);
             background-color: #bbdefb; /* Azul un poco más oscuro al pasar el mouse */
+        }
+        
+        /* FOOTER COMPLETO */
+        .full-width-footer {
+            width: 100%;
+            background-color: #eeeeee; /* Gris claro */
+            padding: 20px 0;
+            margin-top: auto; 
+            text-align: center;
+            color: #546e7a;
+            font-size: 13px;
+            font-weight: 500;
+            border-top: 1px solid #e0e0e0;
+        }
+
+        .footer-content {
+            max-width: 500px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
+        .footer-content strong {
+            color: #37474f;
+            display: block;
+            margin-top: 5px;
         }
 
     </style>
@@ -220,52 +326,93 @@
         <h1>Laboratorio Clínico ICE</h1>
         <p class="subtitle">Especialistas en Hematología y Análisis Clínicos</p>
 
-        <div class="mission-section">
-            <div class="section-title" style="color:#0d47a1; border-bottom:none; margin-bottom: 0;">Nuestra Misión</div>
-            <p class="mission-text">
-                Por 9 Años, Laboratorio Clínico ICE ha estado al servicio de la comunidad, llevando bienestar y tranquilidad a través de análisis rigurosos, confiables y con la más alta tecnología. Nuestro compromiso es con su salud, ofreciendo resultados precisos con la calidez y el profesionalismo que nos caracteriza.
-            </p>
+        <div class="section-container">
+            <div class="section-title" style="color:#0d47a1; border-bottom:none; margin-bottom: 15px;">&#x1F4CD; Nuestra Identidad</div>
+            
+            <div class="mv-box">
+                <div class="mv-item">
+                    <h3>Misi&#xF3;n</h3>
+                    <p>Brindamos servicios de an&#xE1;lisis cl&#xED;nicos de la m&#xE1;s alta calidad, comprometidos con la precisi&#xF3;n diagn&#xF3;stica, la cordialidad y el respeto hacia nuestros pacientes y colaboradores. Somos especialistas en enfermedades de la sangre, con enfoque en casos raros y de dif&#xED;cil interpretaci&#xF3;n, ofreciendo resultados confiables que apoyan un diagn&#xF3;stico oportuno.</p>
+                </div>
+                <div class="mv-item">
+                    <h3>Visi&#xF3;n</h3>
+                    <p>Ser el laboratorio cl&#xED;nico l&#xED;der de la regi&#xF3;n, reconocido por nuestra honestidad, excelencia y trato amable. Aspiramos a ser la primera opci&#xF3;n para pacientes y profesionales de la salud, brindando confianza, bienestar y diagn&#xF3;sticos especializados que marcan la diferencia.</p>
+                </div>
+            </div>
         </div>
 
+        <div class="section-container">
+            <div class="section-title">&#x2728; Principios Fundamentales (Nuestros Valores)</div>
+            
+            <ul class="principles-list">
+                <li>
+                    <strong>1. Trato Humano y Profesional</strong>
+                    Brindamos atenci&#xF3;n c&#xE1;lida, respetuosa y emp&#xE1;tica a nuestros pacientes, m&#xE9;dicos y colaboradores. Creemos en la amabilidad como parte fundamental del servicio y en el profesionalismo como base de la confianza.
+                </li>
+                <li>
+                    <strong>2. Precisi&#xF3;n y Excelencia Diagn&#xF3;stica</strong>
+                    Realizamos cada an&#xE1;lisis con rigor, exactitud y responsabilidad, garantizando resultados confiables que apoyan diagn&#xF3;sticos oportunos y de alto impacto cl&#xED;nico.
+                </li>
+                <li>
+                    <strong>3. Innovaci&#xF3;n Tecnol&#xF3;gica</strong>
+                    Incorporamos tecnolog&#xED;a de vanguardia y m&#xE9;todos actualizados que elevan la calidad, eficiencia y capacidad diagn&#xF3;stica de nuestros servicios.
+                </li>
+                <li>
+                    <strong>4. Desarrollo y Capacitaci&#xF3;n Continua</strong>
+                    Impulsamos la formaci&#xF3;n constante de nuestro equipo, fomentando el crecimiento profesional, la especializaci&#xF3;n y la actualizaci&#xF3;n cient&#xED;fica para brindar un servicio cada vez mejor.
+                </li>
+                <li>
+                    <strong>5. Trabajo en Equipo y Respeto Mutuo</strong>
+                    Fomentamos la colaboraci&#xF3;n, la comunicaci&#xF3;n abierta y el respeto entre todos. Sabemos que un equipo unido, valorado y escuchado genera resultados extraordinarios para nuestros pacientes y nuestra comunidad m&#xE9;dica.
+                </li>
+            </ul>
+        </div>
+        
         <div class="services-section">
-            <div class="section-title">Nuestros Análisis y Servicios</div>
+            <div class="section-title">&#x1F9EA; Nuestros An&#xE1;lisis y Servicios</div>
             <ul class="analysis-list">
-                <li>Química Sanguínea</li>
+                <li>Qu&#xED;mica Sangu&#xED;nea</li>
                 <li>Examen General de Orina</li>
-                <li>Perfil de Lípidos</li>
-                <li>Antígeno Prostático</li>
-                <li>Exámenes Ginecológicos</li>
-                <li>Especialista en Hematología</li>
+                <li>Perfil de L&#xED;pidos</li>
+                <li>Ant&#xED;geno Prost&#xE1;tico</li>
+                <li>Ex&#xE1;menes Ginecol&#xF3;gicos</li>
+                <li>Especialista en Hematolog&#xED;a</li>
             </ul>
         </div>
 
-        <div class="info-box">
-            <div class="section-title" style="border:none; margin-bottom:10px; padding:0;">📍 Ubicaciones</div>
+        <div class="info-box location-box">
+            <div class="section-title" style="border:none; margin-bottom:10px; padding:0;">&#x1F4CD; Ubicaci&#xF3;n Principal</div>
             
-            <div class="info-item">
-                <span class="info-icon">🏥</span>
-                <div class="info-text">
-                    <strong>El Varal de Cabrera</strong>
-                    <span>Abasolo, Guanajuato</span>
+            <a href="https://maps.app.goo.gl/fmkPhrRPGBrPgQ6d7" target="_blank" class="location-link">
+                <span class="location-icon">&#x1F5FA;</span> <div class="location-text">
+                    <strong>El Varal, Av. L&#xE1;zaro C&#xE1;rdenas, Benito Ju&#xE1;rez esquina</strong>
+                    <span>36970 Abasolo, Guanajuato</span>
+                    <span>(Haga clic para ver en Google Maps)</span>
                 </div>
+            </a>
         </div>
 
         <div class="info-box hours-box">
-            <div class="section-title hours-title" style="border:none; margin-bottom:10px; padding:0;">⏰ Horarios de Atención</div>
+            <div class="section-title hours-title" style="border:none; margin-bottom:10px; padding:0;">&#x23F0; Horarios de Atenci&#xF3;n</div>
             
             <div class="info-item">
-                <span class="info-icon">📅</span>
-                <div class="info-text">
+                <span class="info-icon" style="font-size: 20px;">&#x1F4C5;</span> <div class="info-text">
                     <strong>Lunes a Viernes</strong>
-                    <span>7:00 AM - 5:00 PM</span>
+                    <span>7:30 AM - 2:00 PM</span>
+                    <span>4:30 PM - 7:00 PM</span>
                 </div>
             </div>
 
             <div class="info-item">
-                <span class="info-icon">☀️</span>
-                <div class="info-text">
-                    <strong>Sábados</strong>
-                    <span>7:00 AM - 3:00 PM</span>
+                <span class="info-icon" style="font-size: 20px;">&#x2600;</span> <div class="info-text">
+                    <strong>S&#xE1;bados</strong>
+                    <span>7:30 AM - 2:00 PM</span>
+                </div>
+            </div>
+             <div class="info-item">
+                <span class="info-icon" style="font-size: 20px;">&#x2600;</span> <div class="info-text">
+                    <strong>Domingos</strong>
+                    <span>8:00 AM - 1:00 PM</span>
                 </div>
             </div>
         </div>
@@ -280,6 +427,13 @@
                     <img src="{% static 'admin/whatsapp.png' %}" alt="Logo WhatsApp">
                 </a>
             </div>
+        </div>
+    </div>
+    
+    <div class="full-width-footer">
+        <div class="footer-content">
+            www.icelaboratorio.com 2025
+            <strong>Realiza tus an&#xE1;lisis, solicita una cita.</strong>
         </div>
     </div>
 
