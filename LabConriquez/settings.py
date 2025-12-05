@@ -1,3 +1,4 @@
+# settings.py
 
 from pathlib import Path
 import os
@@ -12,19 +13,36 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # ==============================================================================
 
 # SECURITY WARNING: keep the secret key used in production secret!
-# En Render, leerá la variable SECRET_KEY. En local, usa la clave insegura por defecto.
+# En Render, leerá la variable SECRET_KEY. 
 SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-o^-c3$bfs+wt)dvk$y#5gq8(tigycm#()iq6^hz_uercc+y9+b')
 
 
-# --- CONFIGURACIÓN PARA DOCKER/PRODUCCIÓN (CORREGIDO) ---
-# Lee la configuración de DEBUG de una variable de entorno, por defecto True para desarrollo
-DEBUG = os.environ.get('DJANGO_DEBUG', 'True') == 'True' 
+# --- CONFIGURACIÓN PARA PRODUCCIÓN (RENDER) ---
 
-# Lee los hosts permitidos de una variable de entorno, por defecto '*' para desarrollo local
-# Cuando uses Heroku/AWS, esta variable se debe establecer allí.
+# 💡 CORRECCIÓN 1: DEBUG es False por defecto en producción si la variable no existe.
+DEBUG = os.environ.get('DJANGO_DEBUG') == 'True' 
+
+# 💡 CORRECCIÓN 2: Lee los hosts permitidos (e.g., icelaboratorio.com, labconriquez.onrender.com).
+# El valor por defecto '*' es solo para desarrollo local.
 ALLOWED_HOSTS = os.environ.get('DJANGO_ALLOWED_HOSTS', '*').split(',')
-# --------------------------------------------------------
 
+# ==============================================================================
+# AJUSTES DE SEGURIDAD ADICIONALES PARA HTTPS/PRODUCCIÓN
+# ==============================================================================
+
+# 💡 CORRECCIÓN 3: Configuración para asegurar cookies en HTTPS (Necesario en Render).
+SECURE_SSL_REDIRECT = os.environ.get('SECURE_SSL_REDIRECT', 'False') == 'True'
+SESSION_COOKIE_SECURE = os.environ.get('SESSION_COOKIE_SECURE', 'False') == 'True'
+CSRF_COOKIE_SECURE = os.environ.get('CSRF_COOKIE_SECURE', 'False') == 'True'
+
+# Solo permite que las cookies de sesión se accedan a través de HTTP (no JavaScript), mayor seguridad.
+SESSION_COOKIE_HTTPONLY = True
+
+
+CSRF_TRUSTED_ORIGINS = os.environ.get(
+    'CSRF_TRUSTED_ORIGINS', 
+    'http://127.0.0.1,https://icelaboratorio.com,https://www.icelaboratorio.com,https://labconriquezsw-v0dy.onrender.com'
+).split(',')
 
 # ==============================================================================
 # APLICACIONES INSTALADAS
@@ -133,7 +151,7 @@ STATICFILES_DIRS = [BASE_DIR / 'static']
 # Carpeta donde Whitenoise/Render buscarán los archivos estáticos listos para producción
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
-# Motor de almacenamiento optimizado de Whitenoise
+# 💡 CORRECCIÓN 5: Motor de almacenamiento optimizado de Whitenoise (Confirmado)
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 # ==============================================================================

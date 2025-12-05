@@ -45,7 +45,6 @@ urlpatterns = [
     # --- Rutas de Admin ---
     path('admin/', admin.site.urls),
     
-    # --- ⚠️ CORRECCIÓN APLICADA AQUÍ ⚠️ ---
     # Se renombró name="home" a name="inicio" para solucionar el error NoReverseMatch
     path('', views.inicio, name="inicio"), 
     
