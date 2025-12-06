@@ -2,51 +2,53 @@
 
 from pathlib import Path
 import os
-import dj_database_url  # Librería para conectar a la BD de Render
+import dj_database_url
 
-# Build paths inside the project like this: BASE_DIR / 'subdir'.
+# ========== CLOUDINARY ==========
+import cloudinary
+import cloudinary.uploader
+import cloudinary.api
+
+# ======================================================================
+# BASE
+# ======================================================================
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# ======================================================================
+# SEGURIDAD
+# ======================================================================
 
-# ==============================================================================
-# CONFIGURACIÓN DE SEGURIDAD Y ENTORNO
-# ==============================================================================
+SECRET_KEY = os.environ.get(
+    'SECRET_KEY',
+    'django-insecure-o^-c3$bfs+wt)dvk$y#5gq8(tigycm#()iq6^hz_uercc+y9+b'
+)
 
-# SECURITY WARNING: keep the secret key used in production secret!
-# En Render, leerá la variable SECRET_KEY. 
-SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-o^-c3$bfs+wt)dvk$y#5gq8(tigycm#()iq6^hz_uercc+y9+b')
+DEBUG = os.environ.get('DJANGO_DEBUG', 'False') == 'True'
 
+ALLOWED_HOSTS = os.environ.get(
+    'DJANGO_ALLOWED_HOSTS',
+    '127.0.0.1,localhost,labconriquezsw-v0dy.onrender.com,icelaboratorio.com,www.icelaboratorio.com'
+).split(',')
 
-# --- CONFIGURACIÓN PARA PRODUCCIÓN (RENDER) ---
+# ======================================================================
+# SEGURIDAD HTTPS (RENDER)
+# ======================================================================
 
-# 💡 CORRECCIÓN 1: DEBUG es False por defecto en producción si la variable no existe.
-DEBUG = os.environ.get('DJANGO_DEBUG') == 'True' 
-
-# 💡 CORRECCIÓN 2: Lee los hosts permitidos (e.g., icelaboratorio.com, labconriquez.onrender.com).
-# El valor por defecto '*' es solo para desarrollo local.
-ALLOWED_HOSTS = os.environ.get('DJANGO_ALLOWED_HOSTS', '*').split(',')
-
-# ==============================================================================
-# AJUSTES DE SEGURIDAD ADICIONALES PARA HTTPS/PRODUCCIÓN
-# ==============================================================================
-
-# 💡 CORRECCIÓN 3: Configuración para asegurar cookies en HTTPS (Necesario en Render).
 SECURE_SSL_REDIRECT = os.environ.get('SECURE_SSL_REDIRECT', 'False') == 'True'
 SESSION_COOKIE_SECURE = os.environ.get('SESSION_COOKIE_SECURE', 'False') == 'True'
 CSRF_COOKIE_SECURE = os.environ.get('CSRF_COOKIE_SECURE', 'False') == 'True'
 
-# Solo permite que las cookies de sesión se accedan a través de HTTP (no JavaScript), mayor seguridad.
 SESSION_COOKIE_HTTPONLY = True
 
-
 CSRF_TRUSTED_ORIGINS = os.environ.get(
-    'CSRF_TRUSTED_ORIGINS', 
+    'CSRF_TRUSTED_ORIGINS',
     'http://127.0.0.1,https://icelaboratorio.com,https://www.icelaboratorio.com,https://labconriquezsw-v0dy.onrender.com'
 ).split(',')
 
-# ==============================================================================
-# APLICACIONES INSTALADAS
-# ==============================================================================
+# ======================================================================
+# APLICACIONES
+# ======================================================================
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -55,18 +57,23 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'rest_framework',  # Django REST Framework
-    'LabApp',  
+
+    # TERCEROS
+    'rest_framework',
+    'cloudinary',
+    'cloudinary_storage',
+
+    # TUS APPS
+    'LabApp',
 ]
 
-# ==============================================================================
-# MIDDLEWARE (Intermediarios de procesamiento)
-# ==============================================================================
+# ======================================================================
+# MIDDLEWARE
+# ======================================================================
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
-    # Whitenoise debe ir justo después de SecurityMiddleware para servir estáticos en la nube
-    'whitenoise.middleware.WhiteNoiseMiddleware', 
+    'whitenoise.middleware.WhiteNoiseMiddleware',  # STATIC en Render
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -77,10 +84,14 @@ MIDDLEWARE = [
 
 ROOT_URLCONF = 'LabConriquez.urls'
 
+# ======================================================================
+# TEMPLATES
+# ======================================================================
+
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [BASE_DIR / 'templates'], 
+        'DIRS': [BASE_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -94,76 +105,72 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'LabConriquez.wsgi.application'
 
-
-# ==============================================================================
-# BASE DE DATOS (Híbrida: SQLite Local / PostgreSQL Render)
-# ==============================================================================
+# ======================================================================
+# BASE DE DATOS (SQLITE LOCAL / POSTGRES RENDER)
+# ======================================================================
 
 DATABASES = {
     'default': dj_database_url.config(
-        # Si no hay variable DATABASE_URL (estás en local), usa SQLite
         default='sqlite:///' + os.path.join(BASE_DIR, 'db.sqlite3'),
         conn_max_age=600
     )
 }
 
-
-# ==============================================================================
-# VALIDACIÓN DE CONTRASEÑAS
-# ==============================================================================
+# ======================================================================
+# VALIDACIÓN DE PASSWORDS
+# ======================================================================
 
 AUTH_PASSWORD_VALIDATORS = [
-    {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
-    },
+    {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',},
+    {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',},
+    {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',},
+    {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',},
 ]
 
+# ======================================================================
+# INTERNACIONALIZACIÓN
+# ======================================================================
 
-# ==============================================================================
-# INTERNACIONALIZACIÓN (Idioma y Hora)
-# ==============================================================================
-
-LANGUAGE_CODE = 'es-mx'  # Cambiado a Español México
-
-TIME_ZONE = 'America/Mexico_City'  # Cambiado a zona horaria central
+LANGUAGE_CODE = 'es-mx'
+TIME_ZONE = 'America/Mexico_City'
 
 USE_I18N = True
-
 USE_TZ = True
 
-
-# ==============================================================================
-# ARCHIVOS ESTÁTICOS (CSS, JS, Imágenes del sistema)
-# ==============================================================================
+# ======================================================================
+# STATIC FILES (WHITENOISE + RENDER)
+# ======================================================================
 
 STATIC_URL = '/static/'
+
 STATICFILES_DIRS = [BASE_DIR / 'static']
 
-# Carpeta donde Whitenoise/Render buscarán los archivos estáticos listos para producción
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
-# 💡 CORRECCIÓN 5: Motor de almacenamiento optimizado de Whitenoise (Confirmado)
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
-# ==============================================================================
-# ARCHIVOS MEDIA (Imágenes subidas por usuarios/logos)
-# ==============================================================================
+# ======================================================================
+# MEDIA (CLOUDINARY EN PRODUCCIÓN)
+# ⚠️ EN RENDER SE USA CLOUDINARY, NO ESTE DISCO
+# ======================================================================
 
 MEDIA_URL = '/media/'
-MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')  # Solo útil EN LOCAL
 
-# ==============================================================================
-# OTROS AJUSTES
-# ==============================================================================
+# ======================================================================
+# CLOUDINARY CONFIGURACIÓN
+# ======================================================================
 
-# Tipo de campo para claves primarias
+CLOUDINARY_STORAGE = {
+    'CLOUD_NAME': os.environ.get('CLOUDINARY_CLOUD_NAME'),
+    'API_KEY': os.environ.get('CLOUDINARY_API_KEY'),
+    'API_SECRET': os.environ.get('CLOUDINARY_API_SECRET'),
+}
+
+DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
+
+# ======================================================================
+# OTROS
+# ======================================================================
+
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
