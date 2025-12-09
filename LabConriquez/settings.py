@@ -1,5 +1,3 @@
-# settings.py
-
 from pathlib import Path
 import os
 import dj_database_url
@@ -106,7 +104,7 @@ TEMPLATES = [
 WSGI_APPLICATION = 'LabConriquez.wsgi.application'
 
 # ======================================================================
-# BASE DE DATOS (SQLITE LOCAL / POSTGRES RENDER)
+# BASE DE DATOS
 # ======================================================================
 
 DATABASES = {
@@ -133,29 +131,26 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'es-mx'
 TIME_ZONE = 'America/Mexico_City'
-
 USE_I18N = True
 USE_TZ = True
 
 # ======================================================================
-# STATIC FILES (WHITENOISE + RENDER)
+# STATIC FILES (WHITENOISE)
 # ======================================================================
 
 STATIC_URL = '/static/'
-
 STATICFILES_DIRS = [BASE_DIR / 'static']
-
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+# ❌ ESTO YA NO DEBE IR (Forma antigua):
+# STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
+# ======================================================================
+# MEDIA (CLOUDINARY)
+# ======================================================================
 
 MEDIA_URL = '/media/'
-MEDIA_ROOT = os.path.join(BASE_DIR, 'media')  # Solo útil EN LOCAL
-
-# ======================================================================
-# CLOUDINARY CONFIGURACIÓN
-# ======================================================================
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 CLOUDINARY_STORAGE = {
     'CLOUD_NAME': os.environ.get('CLOUDINARY_CLOUD_NAME'),
@@ -163,7 +158,23 @@ CLOUDINARY_STORAGE = {
     'API_SECRET': os.environ.get('CLOUDINARY_API_SECRET'),
 }
 
-DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
+# ❌ ESTO YA NO DEBE IR (Forma antigua que causa el error):
+# DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
+
+# ======================================================================
+# ✅ CONFIGURACIÓN NUEVA (ESTO SOLUCIONA TU PROBLEMA)
+# ======================================================================
+
+STORAGES = {
+    # 1. Media (Tus imágenes) -> SE VAN A CLOUDINARY
+    "default": {
+        "BACKEND": "cloudinary_storage.storage.MediaCloudinaryStorage",
+    },
+    # 2. Static (CSS, JS) -> SE QUEDAN EN RENDER CON WHITENOISE
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
 
 # ======================================================================
 # OTROS
