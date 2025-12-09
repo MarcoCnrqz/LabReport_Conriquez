@@ -1,5 +1,4 @@
-
-# Register your models here.
+# admin.py
 from django.contrib import admin
 from django import forms
 from django.utils.html import format_html
@@ -8,10 +7,59 @@ from .models import (
     Usuario, Laboratorio, Paciente, Pago, LoincCode, Analisis,
     ResultadoAnalisis, Plantilla, PropiedadPlantilla, IntervaloReferencia, Reporte
 )
+# Definimos las opciones agrupadas para que se vean ordenadas en el Admin
+UNIDADES_CHOICES = [
+    ('', '--- Seleccione una unidad ---'), # Opción vacía por defecto
+    ('Hemoglobina', (
+        ('g/dL', 'g/dL'),
+    )),
+    ('Hematocrito', (
+        ('%', '%'),
+    )),
+    ('Eritrocitos (RBC)', (
+        ('×10⁶/µL', '×10⁶/µL'),
+        ('×10⁶/mm³', '×10⁶/mm³ (equivalente)'),
+        ('×10¹²/L', '×10¹²/L'),
+    )),
+    ('Leucocitos (WBC)', (
+        ('×10³/µL', '×10³/µL'),
+        ('/µL', '/µL'),
+        ('/mm³', '/mm³'),
+        ('×10⁹/L', '×10⁹/L'),
+    )),
+    ('Plaquetas (PLT)', (
+        ('×10³/µL', '×10³/µL'),
+        ('/µL', '/µL'),
+        ('×10⁹/L', '×10⁹/L'),
+    )),
+    ('Índices eritrocitarios', (
+        ('fL', 'fL (VCM)'),
+        ('pg', 'pg (HCM)'),
+        ('g/dL', 'g/dL (CHCM)'),
+        ('%', '% (RDW)'),
+    )),
+    ('Fórmula diferencial', (
+        ('%', '%'),
+        ('cél/µL', 'cél/µL (absolutos)'),
+    )),
+    ('Química / Otros', (
+        ('mg/dL', 'mg/dL'),
+        ('U/L', 'U/L'),
+        ('mmol/L', 'mmol/L'),
+    )),
+]
 
-# -------------------------------
-# Inlines (Tablas dentro de otras tablas)
-# -------------------------------
+class PropiedadPlantillaForm(forms.ModelForm):
+    """Formulario para forzar el Dropdown en el Admin sin tocar models.py"""
+    unidad = forms.ChoiceField(choices=UNIDADES_CHOICES, required=False, widget=forms.Select(attrs={'style': 'width: 200px;'}))
+    
+    class Meta:
+        model = PropiedadPlantilla
+        fields = '__all__'
+
+# ==============================================================================
+# 2. INLINES (Tablas dentro de otras tablas)
+# ==============================================================================
 
 class IntervaloReferenciaInline(admin.TabularInline):
     model = IntervaloReferencia
@@ -19,6 +67,7 @@ class IntervaloReferenciaInline(admin.TabularInline):
 
 class PropiedadPlantillaInline(admin.TabularInline):
     model = PropiedadPlantilla
+    form = PropiedadPlantillaForm  # <--- AQUI APLICAMOS EL DROPDOWN
     fields = ('nombre_propiedad', 'unidad', 'loinc_code')
     autocomplete_fields = ('loinc_code',)
     extra = 1
@@ -95,9 +144,9 @@ class ResultadoAnalisisInline(admin.TabularInline):
     valor_coloreado.short_description = "Estado"
 
 
-# -------------------------------
-# Admin Principales
-# -------------------------------
+# ==============================================================================
+# 3. ADMINS PRINCIPALES
+# ==============================================================================
 
 @admin.register(Plantilla)
 class PlantillaAdmin(admin.ModelAdmin):
@@ -105,20 +154,21 @@ class PlantillaAdmin(admin.ModelAdmin):
     search_fields = ('titulo',)
     list_filter = ('tipo_formato',)
     inlines = [PropiedadPlantillaInline]
+    
+    # --- CAMBIO REALIZADO: Eliminada la pestaña de Receta Justificada ---
+    # Solo mostramos los campos generales
     fieldsets = (
         (None, {'fields': ('titulo', 'tipo_formato')}),
-        ('Contenido para Receta Justificada', {
-            'classes': ('collapse',),
-            'fields': ('texto_justificado_default',),
-            'description': 'Este campo solo aplica si el formato es "Receta Justificada".'
-        }),
     )
+    # Excluimos explícitamente el campo por seguridad visual
+    exclude = ('texto_justificado_default',)
 
 @admin.register(PropiedadPlantilla)
 class PropiedadPlantillaAdmin(admin.ModelAdmin):
+    form = PropiedadPlantillaForm # <--- AQUI TAMBIÉN APLICAMOS EL DROPDOWN
     list_display = ('nombre_propiedad', 'plantilla', 'unidad')
     search_fields = ('nombre_propiedad', 'plantilla__titulo')
-    list_filter = ('plantilla',)
+    list_filter = ('plantilla', 'unidad') # Ahora se puede filtrar por unidad
     autocomplete_fields = ('loinc_code',)
     inlines = [IntervaloReferenciaInline]
 
@@ -129,11 +179,10 @@ class AnalisisAdmin(admin.ModelAdmin):
     list_filter = ('plantilla', 'fecha_analisis')
     inlines = [ResultadoAnalisisInline]
     raw_id_fields = ('paciente', 'plantilla')
-    # NOTA: Eliminamos save_model porque ya hay una señal (signal) en models.py que hace esto automáticamente.
 
-# -------------------------------
-# Gestión de Usuarios con Password Seguro
-# -------------------------------
+# ==============================================================================
+# 4. GESTIÓN DE USUARIOS
+# ==============================================================================
 class UsuarioForm(forms.ModelForm):
     class Meta:
         model = Usuario
@@ -182,26 +231,21 @@ class LoincCodeAdmin(admin.ModelAdmin):
     search_fields = ('loinc_num', 'shortname', 'component')
     ordering = ('loinc_num',)
 
-# -------------------------------
-# Admin de Reporte (Corregido)
-# -------------------------------
+# ==============================================================================
+# 5. REPORTE
+# ==============================================================================
 @admin.register(Reporte)
 class ReporteAdmin(admin.ModelAdmin):
-    # Corregido: 'usuario_str' ahora busca 'generado_por'
     list_display = ("id", "analisis", "paciente_info", "generado_por", "fecha_generacion", "ver_pdf")
     list_filter = ("fecha_generacion",)
     search_fields = ("analisis__paciente__nombre", "generado_por__nombre")
     
-    # readonly_fields = ("fecha_generacion",)
-
     def paciente_info(self, obj):
         return obj.analisis.paciente.nombre if obj.analisis and obj.analisis.paciente else "-"
     paciente_info.short_description = "Paciente"
 
-    # Botón para ver PDF (Nota: Necesitas configurar la URL en urls.py para que esto funcione)
     def ver_pdf(self, obj):
         if obj.analisis:
-            # Asegúrate de tener una URL llamada 'generar_pdf' configurada
             return format_html(
                 '<a class="button" style="background-color:#2ecc71;color:white;padding:3px 8px;border-radius:4px;text-decoration:none;" '
                 'href="/reporte/{}/pdf/" target="_blank">🖨️ Ver PDF</a>', obj.analisis.id

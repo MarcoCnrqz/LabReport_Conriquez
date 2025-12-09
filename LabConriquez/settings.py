@@ -55,6 +55,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'jazzmin',  # Sirve para mejorar el apartado de administración
 
     # TERCEROS
     'rest_framework',
@@ -181,3 +182,72 @@ STORAGES = {
 # ======================================================================
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+
+# ======================================================================
+# CONFIGURACION DE DISEÑO DE JAZZMIN
+# settings.py (Al final del archivo)
+
+JAZZMIN_SETTINGS = {
+    # Títulos y Bienvenida
+    "site_title": "Lab Conriquez",
+    "site_header": "Sistema de Laboratorio",
+    "site_brand": "Lab Conriquez",
+    "welcome_sign": "Bienvenido al Panel de Control",
+    "copyright": "Lab Conriquez Software",
+    
+    # Logo (Pon tu archivo en carpeta static/img)
+    # "site_logo": "img/logo.png", 
+    
+    # Menú Lateral
+    "search_model": ["LabApp.Paciente", "LabApp.Analisis"], # Buscador global
+
+    # Iconos para tus modelos (Usa FontAwesome 5)
+    "icons": {
+        "auth": "fas fa-users-cog",
+        "auth.user": "fas fa-user",
+        "auth.Group": "fas fa-users",
+        
+        # TUS MODELOS (Ajusta los nombres de la app si es necesario)
+        "LabApp.Paciente": "fas fa-user-injured",
+        "LabApp.Analisis": "fas fa-microscope",
+        "LabApp.Plantilla": "fas fa-file-medical-alt",
+        "LabApp.Laboratorio": "fas fa-clinic-medical",
+        "LabApp.Pago": "fas fa-money-bill-wave",
+        "LabApp.Reporte": "fas fa-file-pdf",
+    },
+    
+    # Orden del menú lateral
+    "order_with_respect_to": ["LabApp", "auth"],
+
+    # Opciones de interfaz
+    "show_ui_builder": True,  # <--- IMPORTANTE: Poner en False cuando termines de elegir colores
+}
+
+# Ajustes visuales (Tema médico/azul)
+JAZZMIN_UI_TWEAKS = {
+    "navbar_small_text": False,
+    "footer_small_text": False,
+    "body_small_text": False,
+    "brand_small_text": False,
+    "brand_colour": "navbar-primary",
+    "accent": "accent-info",
+    "navbar": "navbar-dark",
+    "no_navbar_border": False,
+    "navbar_fixed": False,
+    "layout_boxed": False,
+    "footer_fixed": False,
+    "sidebar_fixed": True,
+    "sidebar": "sidebar-dark-primary",
+    "sidebar_nav_small_text": False,
+    "theme": "flatly", # Temas disponibles: cerulean, cosmo, flatly, journal, litera, lumen, lux, materia, minty, pulse, sandstone, simplex, sketchy, slate, solar, spacelab, superhero, united, yeti
+    "dark_mode_theme": None,
+    "button_classes": {
+        "primary": "btn-primary",
+        "secondary": "btn-secondary",
+        "info": "btn-info",
+        "warning": "btn-warning",
+        "danger": "btn-danger",
+        "success": "btn-success"
+    }
+}
