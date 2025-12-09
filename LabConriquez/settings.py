@@ -149,10 +149,6 @@ STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
-# ======================================================================
-# MEDIA (CLOUDINARY EN PRODUCCIÓN)
-# ⚠️ EN RENDER SE USA CLOUDINARY, NO ESTE DISCO
-# ======================================================================
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')  # Solo útil EN LOCAL

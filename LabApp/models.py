@@ -3,6 +3,7 @@ from django.contrib.auth.hashers import make_password, check_password, is_passwo
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.db.models import Q 
+import os
 
 # =============================================================================
 # 1. TABLAS PRINCIPALES (Laboratorio, Usuario, Paciente, Pago)
@@ -15,6 +16,17 @@ class Laboratorio(models.Model):
     codigo_postal = models.CharField(max_length=20, null=True, blank=True)
     pais = models.CharField(max_length=100, null=True, blank=True)
     logo = models.ImageField(upload_to='logos_laboratorios/', null=True, blank=True)
+
+    # 🔧 DEBUG PARA CLOUDINARY: Capturar error al guardar logo
+    def save(self, *args, **kwargs):
+        if self.logo:
+            print(f"DEBUG: Intentando guardar logo para Laboratorio: {self.nombre_laboratorio}")
+        try:
+            super().save(*args, **kwargs)
+            print("DEBUG: Laboratorio guardado exitosamente.")
+        except Exception as e:
+            print(f"❌ ERROR CRÍTICO AL GUARDAR LABORATORIO (posible error Cloudinary): {e}")
+            raise e
 
     def __str__(self):
         return f"{self.nombre_laboratorio}"
@@ -120,7 +132,7 @@ class PropiedadPlantilla(models.Model):
         return f"{self.nombre_propiedad}"
     
     class Meta:
-        unique_together = ('plantilla', 'nombre_propiedad') # Evita propiedades duplicadas en una misma plantilla
+        unique_together = ('plantilla', 'nombre_propiedad')
 
 class IntervaloReferencia(models.Model):
     propiedad = models.ForeignKey(PropiedadPlantilla, on_delete=models.CASCADE, related_name="intervalos")
@@ -168,6 +180,18 @@ class ResultadoAnalisis(models.Model):
     valor_blob1 = models.ImageField(upload_to='resultados_imagenes/', null=True, blank=True)
     valor_blob2 = models.ImageField(upload_to='resultados_imagenes/', null=True, blank=True)
 
+    # 🔧 DEBUG PARA CLOUDINARY: Capturar error al guardar imágenes de resultado
+    def save(self, *args, **kwargs):
+        if self.valor_blob1 or self.valor_blob2:
+            print(f"DEBUG: Intentando guardar imagen en ResultadoAnalisis ID: {self.id or 'Nuevo'}")
+        
+        try:
+            super().save(*args, **kwargs)
+            # print("DEBUG: ResultadoAnalisis guardado exitosamente.")
+        except Exception as e:
+            print(f"❌ ERROR CRÍTICO AL GUARDAR RESULTADO ANALISIS (Cloudinary?): {e}")
+            raise e
+
     def __str__(self):
         return f"{self.nombre_propiedad}: {self.valor}"
 
@@ -203,6 +227,7 @@ def crear_resultados_predeterminados(sender, instance, created, **kwargs):
                 Q(sexo=sexo_paciente) | Q(sexo="AMBOS")
             ).first()
             
+            # NOTA: Esto también llama a ResultadoAnalisis.save(), pero sin imagenes, no debería fallar
             ResultadoAnalisis.objects.create(
                 analisis=instance,
                 loinc_code=propiedad.loinc_code,

@@ -18,10 +18,13 @@ class Base64ImageField(serializers.ImageField):
     def to_internal_value(self, data):
         if isinstance(data, str) and data.startswith('data:image'):
             # Formato esperado: "data:image/jpeg;base64,....."
-            format, imgstr = data.split(';base64,')
-            ext = format.split('/')[-1] # ej: jpeg
-            id = uuid.uuid4()
-            data = ContentFile(base64.b64decode(imgstr), name=f"{id}.{ext}")
+            try:
+                format, imgstr = data.split(';base64,')
+                ext = format.split('/')[-1] # ej: jpeg
+                id = uuid.uuid4()
+                data = ContentFile(base64.b64decode(imgstr), name=f"{id}.{ext}")
+            except Exception as e:
+                raise serializers.ValidationError(f"Error decodificando imagen Base64: {str(e)}")
         return super().to_internal_value(data)
 
 # ======================================================
@@ -69,7 +72,7 @@ class PlantillaSerializer(serializers.ModelSerializer):
         read_only_fields = ('sincronizado', 'fecha_modificacion')
 
 # ======================================================
-# 2. SERIALIZERS DE ANÁLISIS (CORREGIDO)
+# 2. SERIALIZERS DE ANÁLISIS
 # ======================================================
 
 class ResultadoSerializer(serializers.ModelSerializer):
@@ -78,7 +81,6 @@ class ResultadoSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ResultadoAnalisis
-        # ⚠️ CORRECCIÓN IMPORTANTE: Se agregó 'id' a la lista de campos
         fields = ['id', 'loinc_code', 'nombre_propiedad', 'valor', 'unidad', 'valor_blob1', 'valor_blob2']
 
 class AnalisisSerializer(serializers.ModelSerializer):
@@ -117,9 +119,13 @@ class AnalisisSerializer(serializers.ModelSerializer):
                 # Si existe, actualizamos los valores
                 resultado_existente.valor = res_data.get('valor')
                 resultado_existente.unidad = res_data.get('unidad')
-                if res_data.get('valor_blob1'): resultado_existente.valor_blob1 = res_data.get('valor_blob1')
-                if res_data.get('valor_blob2'): resultado_existente.valor_blob2 = res_data.get('valor_blob2')
-                resultado_existente.save()
+                
+                if res_data.get('valor_blob1'): 
+                    resultado_existente.valor_blob1 = res_data.get('valor_blob1')
+                if res_data.get('valor_blob2'): 
+                    resultado_existente.valor_blob2 = res_data.get('valor_blob2')
+                
+                resultado_existente.save() # Esto llamará al try/except en models.py
             else:
                 # Si no existe, creamos una nueva
                 ResultadoAnalisis.objects.create(analisis=analisis, **res_data)
@@ -130,6 +136,8 @@ class AnalisisSerializer(serializers.ModelSerializer):
 # 3. OTROS SERIALIZERS
 # ======================================================
 class LaboratorioSerializer(serializers.ModelSerializer):
+    logo = Base64ImageField(max_length=None, use_url=True, required=False, allow_null=True)
+
     class Meta:
         model = Laboratorio
         fields = '__all__'
