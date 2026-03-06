@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from .models import (
     Paciente, Laboratorio, Analisis, ResultadoAnalisis,
-    Plantilla, PropiedadPlantilla, IntervaloReferencia, LoincCode, Usuario
+    Plantilla, PropiedadPlantilla, IntervaloReferencia, LoincCode, Usuario, Reporte
 )
 import base64
 import uuid
@@ -11,16 +11,11 @@ from django.core.files.base import ContentFile
 # 🔧 UTILIDAD: CAMPO DE IMAGEN BASE64
 # ======================================================
 class Base64ImageField(serializers.ImageField):
-    """
-    Decodifica una imagen enviada en formato string Base64 (JSON)
-    y la convierte en un archivo Django ImageField.
-    """
     def to_internal_value(self, data):
         if isinstance(data, str) and data.startswith('data:image'):
-            # Formato esperado: "data:image/jpeg;base64,....."
             try:
                 format, imgstr = data.split(';base64,')
-                ext = format.split('/')[-1] # ej: jpeg
+                ext = format.split('/')[-1]
                 id = uuid.uuid4()
                 data = ContentFile(base64.b64decode(imgstr), name=f"{id}.{ext}")
             except Exception as e:
@@ -47,8 +42,8 @@ class PropiedadPlantillaSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         intervalos_data = validated_data.pop('intervalos', [])
         propiedad = PropiedadPlantilla.objects.create(**validated_data)
-        for intervalo_data in intervalos_data:
-            IntervaloReferencia.objects.create(propiedad=propiedad, **intervalo_data)
+        for int_data in intervalos_data:
+            IntervaloReferencia.objects.create(propiedad=propiedad, **int_data)
         return propiedad
     
     def update(self, instance, validated_data):
@@ -60,8 +55,8 @@ class PropiedadPlantillaSerializer(serializers.ModelSerializer):
 
         if intervalos_data is not None:
             instance.intervalos.all().delete()
-            for intervalo_data in intervalos_data:
-                IntervaloReferencia.objects.create(propiedad=instance, **intervalo_data)
+            for int_data in intervalos_data:
+                IntervaloReferencia.objects.create(propiedad=instance, **int_data)
         return instance
 
 class PlantillaSerializer(serializers.ModelSerializer):
@@ -91,63 +86,54 @@ class AnalisisSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
     def create(self, validated_data):
-        """
-        Crea el análisis y gestiona los resultados evitando duplicados
-        causados por la señal post_save.
-        """
         resultados_data = validated_data.pop('resultados', [])
-        
-        # 1. Crear el Análisis (Esto dispara la señal en models.py que crea filas vacías)
         analisis = Analisis.objects.create(**validated_data)
         
-        # 2. Procesar los resultados enviados
         for res_data in resultados_data:
             nombre_prop = res_data.get('nombre_propiedad')
             loinc = res_data.get('loinc_code')
             
-            # Buscar si la señal YA creó esta fila (estará vacía)
             resultado_existente = None
-            
             if loinc:
                 resultado_existente = ResultadoAnalisis.objects.filter(analisis=analisis, loinc_code=loinc).first()
-            
             if not resultado_existente and nombre_prop:
                 resultado_existente = ResultadoAnalisis.objects.filter(analisis=analisis, nombre_propiedad=nombre_prop).first()
 
-            # 3. Actualizar o Crear
             if resultado_existente:
-                # Si existe, actualizamos los valores
-                resultado_existente.valor = res_data.get('valor')
-                resultado_existente.unidad = res_data.get('unidad')
-                
-                if res_data.get('valor_blob1'): 
-                    resultado_existente.valor_blob1 = res_data.get('valor_blob1')
-                if res_data.get('valor_blob2'): 
-                    resultado_existente.valor_blob2 = res_data.get('valor_blob2')
-                
-                resultado_existente.save() # Esto llamará al try/except en models.py
+                resultado_existente.valor = res_data.get('valor', resultado_existente.valor)
+                resultado_existente.unidad = res_data.get('unidad', resultado_existente.unidad)
+                if res_data.get('valor_blob1'): resultado_existente.valor_blob1 = res_data.get('valor_blob1')
+                if res_data.get('valor_blob2'): resultado_existente.valor_blob2 = res_data.get('valor_blob2')
+                resultado_existente.save()
             else:
-                # Si no existe, creamos una nueva
                 ResultadoAnalisis.objects.create(analisis=analisis, **res_data)
-            
         return analisis
 
 # ======================================================
 # 3. OTROS SERIALIZERS
 # ======================================================
+
 class LaboratorioSerializer(serializers.ModelSerializer):
     logo = Base64ImageField(max_length=None, use_url=True, required=False, allow_null=True)
-
     class Meta:
         model = Laboratorio
         fields = '__all__'
 
 class PacienteSerializer(serializers.ModelSerializer):
+    edad = serializers.ReadOnlyField()
+    nombre_completo = serializers.ReadOnlyField() # Agregado para soportar los nuevos apellidos
     class Meta:
         model = Paciente
         fields = '__all__'
 
 class UsuarioSerializer(serializers.ModelSerializer):
+    firma_digital = Base64ImageField(max_length=None, use_url=True, required=False, allow_null=True)
     class Meta:
         model = Usuario
-        fields = ['id', 'nombre', 'correo_electronico', 'laboratorios']
+        fields = '__all__' 
+        extra_kwargs = {'password': {'write_only': True}} # Seguridad: no devuelve el hash
+
+class ReporteSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Reporte
+        fields = '__all__'

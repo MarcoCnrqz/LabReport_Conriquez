@@ -1,46 +1,33 @@
-# admin.py
 from django.contrib import admin
 from django import forms
 from django.utils.html import format_html
-from django.db import models
+from django.db.models import Q
 from .models import (
-    Usuario, Laboratorio, Paciente, Pago, LoincCode, Analisis,
-    ResultadoAnalisis, Plantilla, PropiedadPlantilla, IntervaloReferencia, Reporte
+    Usuario, Laboratorio, Paciente, LoincCode, Analisis,
+    ResultadoAnalisis, Plantilla, PropiedadPlantilla, IntervaloReferencia
 )
-# Definimos las opciones agrupadas para que se vean ordenadas en el Admin
+
+# ======================================================
+# 1. CONFIGURACIÓN DE FORMULARIOS Y UNIDADES
+# ======================================================
+
 UNIDADES_CHOICES = [
-    ('', '--- Seleccione una unidad ---'), # Opción vacía por defecto
-    ('Hemoglobina', (
-        ('g/dL', 'g/dL'),
-    )),
-    ('Hematocrito', (
-        ('%', '%'),
-    )),
+    ('', '--- Seleccione una unidad ---'),
+    ('Hemoglobina', (('g/dL', 'g/dL'),)),
+    ('Hematocrito', (('%', '%'),)),
     ('Eritrocitos (RBC)', (
         ('×10⁶/µL', '×10⁶/µL'),
-        ('×10⁶/mm³', '×10⁶/mm³ (equivalente)'),
+        ('×10⁶/mm³', '×10⁶/mm³'),
         ('×10¹²/L', '×10¹²/L'),
     )),
     ('Leucocitos (WBC)', (
         ('×10³/µL', '×10³/µL'),
         ('/µL', '/µL'),
-        ('/mm³', '/mm³'),
         ('×10⁹/L', '×10⁹/L'),
     )),
     ('Plaquetas (PLT)', (
         ('×10³/µL', '×10³/µL'),
-        ('/µL', '/µL'),
         ('×10⁹/L', '×10⁹/L'),
-    )),
-    ('Índices eritrocitarios', (
-        ('fL', 'fL (VCM)'),
-        ('pg', 'pg (HCM)'),
-        ('g/dL', 'g/dL (CHCM)'),
-        ('%', '% (RDW)'),
-    )),
-    ('Fórmula diferencial', (
-        ('%', '%'),
-        ('cél/µL', 'cél/µL (absolutos)'),
     )),
     ('Química / Otros', (
         ('mg/dL', 'mg/dL'),
@@ -50,16 +37,14 @@ UNIDADES_CHOICES = [
 ]
 
 class PropiedadPlantillaForm(forms.ModelForm):
-    """Formulario para forzar el Dropdown en el Admin sin tocar models.py"""
-    unidad = forms.ChoiceField(choices=UNIDADES_CHOICES, required=False, widget=forms.Select(attrs={'style': 'width: 200px;'}))
-    
+    unidad = forms.ChoiceField(choices=UNIDADES_CHOICES, required=False, widget=forms.Select(attrs={'style': 'width: 250px;'}))
     class Meta:
         model = PropiedadPlantilla
         fields = '__all__'
 
-# ==============================================================================
-# 2. INLINES (Tablas dentro de otras tablas)
-# ==============================================================================
+# ======================================================
+# 2. INLINES (EDICIÓN INTEGRADA)
+# ======================================================
 
 class IntervaloReferenciaInline(admin.TabularInline):
     model = IntervaloReferencia
@@ -67,7 +52,7 @@ class IntervaloReferenciaInline(admin.TabularInline):
 
 class PropiedadPlantillaInline(admin.TabularInline):
     model = PropiedadPlantilla
-    form = PropiedadPlantillaForm  # <--- AQUI APLICAMOS EL DROPDOWN
+    form = PropiedadPlantillaForm
     fields = ('nombre_propiedad', 'unidad', 'loinc_code')
     autocomplete_fields = ('loinc_code',)
     extra = 1
@@ -76,179 +61,129 @@ class ResultadoAnalisisInline(admin.TabularInline):
     model = ResultadoAnalisis
     extra = 0
     autocomplete_fields = ['loinc_code']
-    # Agregamos las vistas previas de las imágenes aquí
     fields = ('nombre_propiedad', 'valor', 'unidad', 'valor_blob1', 'preview_img1', 'valor_blob2', 'preview_img2', 'intervalo_referencia', 'valor_coloreado')
     readonly_fields = ('intervalo_referencia', 'valor_coloreado', 'preview_img1', 'preview_img2')
 
     def preview_img1(self, obj):
         if obj.valor_blob1:
-            return format_html('<img src="{}" style="height: 50px; border-radius: 5px;" />', obj.valor_blob1.url)
+            return format_html('<img src="{}" style="height:50px;border-radius:5px;" />', obj.valor_blob1.url)
         return "-"
-    preview_img1.short_description = "Img 1"
-
+    
     def preview_img2(self, obj):
         if obj.valor_blob2:
-            return format_html('<img src="{}" style="height: 50px; border-radius: 5px;" />', obj.valor_blob2.url)
+            return format_html('<img src="{}" style="height:50px;border-radius:5px;" />', obj.valor_blob2.url)
         return "-"
-    preview_img2.short_description = "Img 2"
 
     def intervalo_referencia(self, obj):
-        """Muestra el rango de referencia según paciente"""
         if not obj.analisis or not obj.analisis.paciente: return "-"
         paciente = obj.analisis.paciente
-        
-        # Lógica simplificada de edad
-        if paciente.edad <= 18: grupo_edad = "NINO"
-        elif paciente.edad <= 59: grupo_edad = "ADULTO"
-        else: grupo_edad = "ADULTO_MAYOR"
-
+        grupo_edad = "NINO" if paciente.edad <= 18 else "ADULTO" if paciente.edad <= 59 else "ADULTO_MAYOR"
         propiedad = obj.analisis.plantilla.propiedades.filter(nombre_propiedad=obj.nombre_propiedad).first()
         if not propiedad: return "-"
-        
-        intervalo = propiedad.intervalos.filter(grupo_edad=grupo_edad).filter(
-            models.Q(sexo=paciente.sexo) | models.Q(sexo="AMBOS")
-        ).first()
-
+        intervalo = propiedad.intervalos.filter(grupo_edad=grupo_edad).filter(Q(sexo=paciente.sexo)|Q(sexo="AMBOS")).first()
         if intervalo:
             return f"{intervalo.valor_min} - {intervalo.valor_max} {obj.unidad or ''}"
         return "-"
-    intervalo_referencia.short_description = "Rango Ref."
 
     def valor_coloreado(self, obj):
-        """Muestra el valor con color según esté dentro o fuera del rango"""
+        if not obj.analisis or not obj.analisis.paciente or not obj.valor: return obj.valor or ""
         paciente = obj.analisis.paciente
-        if paciente.edad <= 18: grupo_edad = "NINO"
-        elif paciente.edad <= 59: grupo_edad = "ADULTO"
-        else: grupo_edad = "ADULTO_MAYOR"
-
+        grupo_edad = "NINO" if paciente.edad <= 18 else "ADULTO" if paciente.edad <= 59 else "ADULTO_MAYOR"
         propiedad = obj.analisis.plantilla.propiedades.filter(nombre_propiedad=obj.nombre_propiedad).first()
-        if not propiedad: return obj.valor or ""
-
-        intervalo = propiedad.intervalos.filter(grupo_edad=grupo_edad).filter(
-            models.Q(sexo=paciente.sexo) | models.Q(sexo="AMBOS")
-        ).first()
-
+        if not propiedad: return obj.valor
+        intervalo = propiedad.intervalos.filter(grupo_edad=grupo_edad).filter(Q(sexo=paciente.sexo)|Q(sexo="AMBOS")).first()
         if intervalo and obj.valor:
             try:
                 valor = float(obj.valor)
                 if valor < intervalo.valor_min or valor > intervalo.valor_max:
-                    color = "red"
-                    weight = "bold"
-                else:
-                    color = "green"
-                    weight = "normal"
-                return format_html('<span style="color:{}; font-weight:{};">{}</span>', color, weight, obj.valor)
+                    return format_html('<span style="color:red;font-weight:bold;">{} (Fuera de Rango)</span>', obj.valor)
+                return format_html('<span style="color:green;">{}</span>', obj.valor)
             except ValueError:
-                return obj.valor 
+                return obj.valor
         return obj.valor
-    valor_coloreado.short_description = "Estado"
 
-
-# ==============================================================================
-# 3. ADMINS PRINCIPALES
-# ==============================================================================
-
-@admin.register(Plantilla)
-class PlantillaAdmin(admin.ModelAdmin):
-    list_display = ('titulo', 'tipo_formato')
-    search_fields = ('titulo',)
-    list_filter = ('tipo_formato',)
-    inlines = [PropiedadPlantillaInline]
-    
-    # --- CAMBIO REALIZADO: Eliminada la pestaña de Receta Justificada ---
-    # Solo mostramos los campos generales
-    fieldsets = (
-        (None, {'fields': ('titulo', 'tipo_formato')}),
-    )
-    # Excluimos explícitamente el campo por seguridad visual
-    exclude = ('texto_justificado_default',)
-
-@admin.register(PropiedadPlantilla)
-class PropiedadPlantillaAdmin(admin.ModelAdmin):
-    form = PropiedadPlantillaForm # <--- AQUI TAMBIÉN APLICAMOS EL DROPDOWN
-    list_display = ('nombre_propiedad', 'plantilla', 'unidad')
-    search_fields = ('nombre_propiedad', 'plantilla__titulo')
-    list_filter = ('plantilla', 'unidad') # Ahora se puede filtrar por unidad
-    autocomplete_fields = ('loinc_code',)
-    inlines = [IntervaloReferenciaInline]
-
-@admin.register(Analisis)
-class AnalisisAdmin(admin.ModelAdmin):
-    list_display = ('id', 'paciente', 'plantilla', 'fecha_analisis')
-    search_fields = ('paciente__nombre', 'plantilla__titulo')
-    list_filter = ('plantilla', 'fecha_analisis')
-    inlines = [ResultadoAnalisisInline]
-    raw_id_fields = ('paciente', 'plantilla')
-
-# ==============================================================================
-# 4. GESTIÓN DE USUARIOS
-# ==============================================================================
-class UsuarioForm(forms.ModelForm):
-    class Meta:
-        model = Usuario
-        fields = '__all__'
-        widgets = {'password': forms.PasswordInput(render_value=True)}
+# ======================================================
+# 3. REGISTRO DE MODELOS
+# ======================================================
 
 @admin.register(Usuario)
 class UsuarioAdmin(admin.ModelAdmin):
-    form = UsuarioForm
-    list_display = ('id', 'nombre', 'correo_electronico', 'num_telefono', 'is_active')
-    search_fields = ('nombre', 'correo_electronico', 'laboratorios__nombre_laboratorio')
+    list_display = ('id', 'nombre', 'correo_electronico', 'rol', 'puesto', 'cedula_profesional', 'is_active')
+    list_filter = ('rol', 'is_active')
+    search_fields = ('nombre', 'correo_electronico', 'cedula_profesional')
     filter_horizontal = ('laboratorios',)
+    
+    def get_form(self, request, obj=None, **kwargs):
+        form = super().get_form(request, obj, **kwargs)
+        form.base_fields['password'].widget = forms.PasswordInput(render_value=True)
+        return form
 
     def save_model(self, request, obj, form, change):
-        # Encriptar contraseña si se cambió desde el formulario
         if form.cleaned_data.get('password') and ('password' in form.changed_data or not change):
-             obj.set_password(form.cleaned_data['password'])
+            obj.set_password(form.cleaned_data['password'])
         super().save_model(request, obj, form, change)
 
 @admin.register(Laboratorio)
 class LaboratorioAdmin(admin.ModelAdmin):
-    list_display = ('id', 'nombre_laboratorio', 'ciudad', 'logo_thumbnail')
+    list_display = ('nombre_laboratorio', 'ciudad', 'responsable_sanitario_principal')
     search_fields = ('nombre_laboratorio', 'ciudad')
-
-    def logo_thumbnail(self, obj):
-        if obj.logo:
-            return format_html('<img src="{}" style="width: 50px; height: 50px; object-fit: cover; border-radius: 50%;" />', obj.logo.url)
-        return "-"
-    logo_thumbnail.short_description = 'Logo'
 
 @admin.register(Paciente)
 class PacienteAdmin(admin.ModelAdmin):
-    list_display = ('id', 'nombre', 'edad', 'sexo', 'laboratorio', 'telefono')
-    search_fields = ('nombre', 'laboratorio__nombre_laboratorio')
+    # Search_fields es CRÍTICO para que el autocompletado funcione en Análisis
+    search_fields = ('nombre', 'apellido_paterno', 'apellido_materno')
+    list_display = ('id', 'nombre_completo', 'sexo', 'get_edad', 'laboratorio')
     list_filter = ('sexo', 'laboratorio')
+    
+    def get_edad(self, obj):
+        return f"{obj.edad} años"
+    get_edad.short_description = "Edad"
 
-@admin.register(Pago)
-class PagoAdmin(admin.ModelAdmin):
-    list_display = ('id', 'usuario', 'fecha_pago', 'fecha_vencimiento', 'estado')
-    list_filter = ('estado', 'fecha_pago')
-    search_fields = ('usuario__nombre',)
+@admin.register(Analisis)
+class AnalisisAdmin(admin.ModelAdmin):
+    # Visualización mejorada en la lista
+    list_display = ('id', 'get_paciente', 'get_plantilla', 'status', 'creado_por', 'fecha_analisis', 'link_pdf')
+    list_filter = ('status', 'plantilla', 'fecha_analisis')
+    search_fields = ('paciente__nombre', 'paciente__apellido_paterno', 'plantilla__titulo')
+    
+    # Mejora Visual: Autocompletado con búsqueda de texto en lugar de IDs feos
+    autocomplete_fields = ('paciente', 'plantilla', 'creado_por')
+    
+    inlines = [ResultadoAnalisisInline]
+
+    def get_paciente(self, obj):
+        return obj.paciente.nombre_completo
+    get_paciente.short_description = "Paciente"
+
+    def get_plantilla(self, obj):
+        return obj.plantilla.titulo if obj.plantilla else "-"
+    get_plantilla.short_description = "Plantilla"
+
+    def link_pdf(self, obj):
+        if obj.id:
+            return format_html(
+                '<a class="button" style="background-color:#2ecc71;color:white;padding:5px 10px;border-radius:5px;text-decoration:none;" '
+                'href="/admin_ext/analisis/{}/generar_pdf/" target="_blank">📄 Ver PDF</a>',
+                obj.id
+            )
+        return "-"
+    link_pdf.short_description = "Reporte"
+
+@admin.register(Plantilla)
+class PlantillaAdmin(admin.ModelAdmin):
+    # Search_fields permite que Análisis lo encuentre por nombre
+    search_fields = ('titulo',)
+    list_display = ('titulo', 'tipo_formato', 'fecha_modificacion')
+    inlines = [PropiedadPlantillaInline]
 
 @admin.register(LoincCode)
 class LoincCodeAdmin(admin.ModelAdmin):
-    list_display = ('loinc_num', 'shortname', 'component')
     search_fields = ('loinc_num', 'shortname', 'component')
-    ordering = ('loinc_num',)
+    list_display = ('loinc_num', 'shortname', 'component', 'system')
 
-# ==============================================================================
-# 5. REPORTE
-# ==============================================================================
-@admin.register(Reporte)
-class ReporteAdmin(admin.ModelAdmin):
-    list_display = ("id", "analisis", "paciente_info", "generado_por", "fecha_generacion", "ver_pdf")
-    list_filter = ("fecha_generacion",)
-    search_fields = ("analisis__paciente__nombre", "generado_por__nombre")
-    
-    def paciente_info(self, obj):
-        return obj.analisis.paciente.nombre if obj.analisis and obj.analisis.paciente else "-"
-    paciente_info.short_description = "Paciente"
-
-    def ver_pdf(self, obj):
-        if obj.analisis:
-            return format_html(
-                '<a class="button" style="background-color:#2ecc71;color:white;padding:3px 8px;border-radius:4px;text-decoration:none;" '
-                'href="/reporte/{}/pdf/" target="_blank">🖨️ Ver PDF</a>', obj.analisis.id
-            )
-        return "-"
-    ver_pdf.short_description = "Acción"
+@admin.register(PropiedadPlantilla)
+class PropiedadPlantillaAdmin(admin.ModelAdmin):
+    form = PropiedadPlantillaForm
+    list_display = ('nombre_propiedad', 'plantilla', 'unidad')
+    autocomplete_fields = ('loinc_code', 'plantilla')
+    inlines = [IntervaloReferenciaInline]
