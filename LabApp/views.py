@@ -2,17 +2,17 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from django.shortcuts import render, get_object_or_404
-from django.http import HttpResponse
+from django.http import HttpResponse, FileResponse
 from django.db.models import Q
 
 from .models import (
     Paciente, Laboratorio, Analisis, ResultadoAnalisis,
-    Plantilla, PropiedadPlantilla, IntervaloReferencia, Usuario, Reporte
+    Plantilla, PropiedadPlantilla, IntervaloReferencia, Usuario
 )
 from .serializers import (
     PacienteSerializer, LaboratorioSerializer, AnalisisSerializer,
     PlantillaSerializer, PropiedadPlantillaSerializer,
-    IntervaloReferenciaSerializer, UsuarioSerializer, ReporteSerializer
+    IntervaloReferenciaSerializer, UsuarioSerializer
 )
 from .utils.imprimir_pdf import generar_pdf_reporte
 
@@ -48,10 +48,6 @@ class UsuarioViewSet(viewsets.ModelViewSet):
     queryset = Usuario.objects.all()
     serializer_class = UsuarioSerializer
 
-class ReporteViewSet(viewsets.ModelViewSet):
-    queryset = Reporte.objects.all()
-    serializer_class = ReporteSerializer
-
 # ======================================================
 # 🔹 VISTAS GENERALES
 # ======================================================
@@ -73,16 +69,19 @@ def logout_fix(request):
     return render(request, 'admin/login.html', {})
 
 # ======================================================
-# 🔹 PDF ADMIN
+# 🔹 PDF — FUNCIÓN AUXILIAR
 # ======================================================
 
-def generar_pdf_admin(request, analisis_id):
-    analisis = get_object_or_404(Analisis, id=analisis_id)
-    paciente = analisis.paciente
+def _construir_detalles_analisis(analisis):
+    """
+    Extrae todos los datos del análisis y los convierte en el
+    diccionario que espera generar_pdf_reporte.
+    """
+    paciente    = analisis.paciente
     laboratorio = paciente.laboratorio if hasattr(paciente, 'laboratorio') else None
-    quimico = analisis.creado_por
+    quimico     = analisis.creado_por
 
-    # Logo en bytes
+    # --- Logo del laboratorio ---
     logo_bytes = None
     if laboratorio and laboratorio.logo:
         try:
@@ -91,7 +90,7 @@ def generar_pdf_admin(request, analisis_id):
         except Exception:
             logo_bytes = None
 
-    # Firma en bytes (Nuevo)
+    # --- Firma digital del químico ---
     firma_bytes = None
     if quimico and quimico.firma_digital:
         try:
@@ -100,21 +99,44 @@ def generar_pdf_admin(request, analisis_id):
         except Exception:
             firma_bytes = None
 
-    # Resultados con lógica de búsqueda de intervalos
-    resultados = []
-    edad = paciente.edad
-    grupo_edad = "NINO" if edad <= 18 else "ADULTO" if edad <= 59 else "ADULTO_MAYOR"
+    # --- Imágenes del análisis (solo para IMAGENES_RESULTADOS) ---
+    imagen_bytes1 = None
+    imagen_bytes2 = None
+    if analisis.plantilla and analisis.plantilla.tipo_formato == 'IMAGENES_RESULTADOS':
+        if analisis.imagen_resultado1:
+            try:
+                with analisis.imagen_resultado1.open("rb") as f:
+                    imagen_bytes1 = f.read()
+            except Exception:
+                imagen_bytes1 = None
+        if analisis.imagen_resultado2:
+            try:
+                with analisis.imagen_resultado2.open("rb") as f:
+                    imagen_bytes2 = f.read()
+            except Exception:
+                imagen_bytes2 = None
+
+    # --- Resultados con intervalos de referencia por edad y sexo ---
+    resultados  = []
+    edad_meses  = paciente.edad_en_meses
 
     for res in analisis.resultados.all():
         valor_min = None
         valor_max = None
         try:
-            propiedad = analisis.plantilla.propiedades.filter(nombre_propiedad=res.nombre_propiedad).first()
+            propiedad = analisis.plantilla.propiedades.filter(
+                nombre_propiedad=res.nombre_propiedad
+            ).first()
+
             if propiedad:
-                # Búsqueda precisa por grupo de edad y sexo
                 intervalo = propiedad.intervalos.filter(
-                    Q(grupo_edad=grupo_edad) & (Q(sexo=paciente.sexo) | Q(sexo="AMBOS"))
+                    Q(sexo=paciente.sexo) | Q(sexo="AMBOS")
+                ).filter(
+                    Q(edad_min_meses__isnull=True) | Q(edad_min_meses__lte=edad_meses)
+                ).filter(
+                    Q(edad_max_meses__isnull=True) | Q(edad_max_meses__gte=edad_meses)
                 ).first()
+
                 if intervalo:
                     valor_min = intervalo.valor_min
                     valor_max = intervalo.valor_max
@@ -123,31 +145,70 @@ def generar_pdf_admin(request, analisis_id):
 
         resultados.append({
             "nombre_propiedad": res.nombre_propiedad,
-            "valor": res.valor,
-            "unidad": res.unidad,
-            "valor_min": valor_min,
-            "valor_max": valor_max
+            "valor":            res.valor,
+            "unidad":           res.unidad,
+            "valor_min":        valor_min,
+            "valor_max":        valor_max,
         })
 
-    detalles = {
-        "paciente": paciente.nombre_completo, # Usa la property de nombre + apellidos
-        "edad": paciente.edad,
-        "sexo": paciente.sexo,
-        "usuario_generador": quimico.nombre if quimico else "",
-        "quimico_puesto": quimico.puesto if quimico else "",
-        "quimico_titulo": quimico.titulo_abreviado if quimico else "",
-        "quimico_cedula": quimico.cedula_profesional if quimico else "",
-        "quimico_ssg": quimico.registro_ssg if quimico else "",
-        "quimico_firma_bytes": firma_bytes,
-        "fecha_muestra": analisis.fecha_analisis,
-        "fecha_analisis": analisis.fecha_analisis,
-        "tipo": analisis.plantilla.titulo,
-        "tipo_formato_raw": analisis.plantilla.tipo_formato,
-        "laboratorio_logo": logo_bytes,
-        "resultados": resultados,
-        "imagen_blob1": None,
-        "imagen_blob2": None,
+    # --- Diccionario completo para el PDF ---
+    return {
+        # Paciente
+        "paciente":               paciente.nombre_completo,
+        "edad":                   paciente.edad,
+        "sexo":                   paciente.sexo,
+
+        # Análisis
+        "tipo":                   analisis.plantilla.titulo,
+        "tipo_formato_raw":       analisis.plantilla.tipo_formato,
+        "fecha_muestra":          analisis.fecha_analisis,
+        "fecha_analisis":         analisis.fecha_analisis,
+        "resultados":             resultados,
+
+        # Laboratorio
+        "laboratorio_logo":       logo_bytes,
+
+        # Imágenes (formato especial)
+        "imagen_blob1":           imagen_bytes1,
+        "imagen_blob2":           imagen_bytes2,
+
+        # Químico / Responsable sanitario — TODOS los campos
+        "usuario_generador":           quimico.nombre               if quimico else "",
+        "quimico_puesto":              quimico.puesto               if quimico else "",
+        "quimico_titulo":              quimico.titulo_abreviado      if quimico else "",
+        "quimico_cedula":              quimico.cedula_profesional    if quimico else "",
+        "quimico_cedula_especialidad": quimico.cedula_especialidad   if quimico else "",
+        "quimico_ssg":                 quimico.registro_ssg          if quimico else "",
+        "quimico_universidad":         quimico.universidad_egreso    if quimico else "",
+        "quimico_firma_bytes":         firma_bytes,
     }
 
-    return generar_pdf_reporte(detalles)
 
+# ======================================================
+# 🔹 PDF — VISTAS
+# ======================================================
+
+def generar_pdf_admin(request, analisis_id):
+    """Vista legacy — mantiene compatibilidad con enlaces anteriores."""
+    analisis     = get_object_or_404(Analisis, id=analisis_id)
+    detalles     = _construir_detalles_analisis(analisis)
+    archivo_path = generar_pdf_reporte(detalles)
+
+    return FileResponse(
+        open(archivo_path, 'rb'),
+        content_type='application/pdf',
+        filename=f"analisis_{analisis_id}.pdf"
+    )
+
+
+def generar_pdf_analisis(request, pk):
+    """Vista principal — responde a admin_ext/analisis/<pk>/generar_pdf/"""
+    analisis     = get_object_or_404(Analisis, pk=pk)
+    detalles     = _construir_detalles_analisis(analisis)
+    archivo_path = generar_pdf_reporte(detalles)
+
+    return FileResponse(
+        open(archivo_path, 'rb'),
+        content_type='application/pdf',
+        filename=f"analisis_{pk}.pdf"
+    )

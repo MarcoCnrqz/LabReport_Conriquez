@@ -1,0 +1,20 @@
+# Entornos virtuales
+venv/
+env/
+EntVLabConriquez/
+
+# Base de datos
+db.sqlite3
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Archivos de sistema
+.DS_Store
+
+# Static/media
+staticfiles/
+media/

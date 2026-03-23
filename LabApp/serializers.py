@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from .models import (
     Paciente, Laboratorio, Analisis, ResultadoAnalisis,
-    Plantilla, PropiedadPlantilla, IntervaloReferencia, LoincCode, Usuario, Reporte
+    Plantilla, PropiedadPlantilla, IntervaloReferencia, LoincCode, Usuario
 )
 import base64
 import uuid
@@ -71,15 +71,16 @@ class PlantillaSerializer(serializers.ModelSerializer):
 # ======================================================
 
 class ResultadoSerializer(serializers.ModelSerializer):
-    valor_blob1 = Base64ImageField(max_length=None, use_url=True, required=False, allow_null=True)
-    valor_blob2 = Base64ImageField(max_length=None, use_url=True, required=False, allow_null=True)
-
+    # ✅ valor_blob1 y valor_blob2 eliminados — ya no existen en ResultadoAnalisis
     class Meta:
         model = ResultadoAnalisis
-        fields = ['id', 'loinc_code', 'nombre_propiedad', 'valor', 'unidad', 'valor_blob1', 'valor_blob2']
+        fields = ['id', 'loinc_code', 'nombre_propiedad', 'valor', 'unidad']
 
 class AnalisisSerializer(serializers.ModelSerializer):
     resultados = ResultadoSerializer(many=True, required=False)
+    # ✅ Imágenes del análisis completo manejadas con Base64
+    imagen_resultado1 = Base64ImageField(max_length=None, use_url=True, required=False, allow_null=True)
+    imagen_resultado2 = Base64ImageField(max_length=None, use_url=True, required=False, allow_null=True)
 
     class Meta:
         model = Analisis
@@ -102,8 +103,6 @@ class AnalisisSerializer(serializers.ModelSerializer):
             if resultado_existente:
                 resultado_existente.valor = res_data.get('valor', resultado_existente.valor)
                 resultado_existente.unidad = res_data.get('unidad', resultado_existente.unidad)
-                if res_data.get('valor_blob1'): resultado_existente.valor_blob1 = res_data.get('valor_blob1')
-                if res_data.get('valor_blob2'): resultado_existente.valor_blob2 = res_data.get('valor_blob2')
                 resultado_existente.save()
             else:
                 ResultadoAnalisis.objects.create(analisis=analisis, **res_data)
@@ -121,7 +120,8 @@ class LaboratorioSerializer(serializers.ModelSerializer):
 
 class PacienteSerializer(serializers.ModelSerializer):
     edad = serializers.ReadOnlyField()
-    nombre_completo = serializers.ReadOnlyField() # Agregado para soportar los nuevos apellidos
+    edad_en_meses = serializers.ReadOnlyField()
+    nombre_completo = serializers.ReadOnlyField()
     class Meta:
         model = Paciente
         fields = '__all__'
@@ -131,9 +131,4 @@ class UsuarioSerializer(serializers.ModelSerializer):
     class Meta:
         model = Usuario
         fields = '__all__' 
-        extra_kwargs = {'password': {'write_only': True}} # Seguridad: no devuelve el hash
-
-class ReporteSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Reporte
-        fields = '__all__'
+        extra_kwargs = {'password': {'write_only': True}}

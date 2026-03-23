@@ -4,21 +4,14 @@ from django.conf import settings
 from django.conf.urls.static import static 
 from rest_framework.routers import DefaultRouter
 
-# --- IMPORTACIONES PARA ARREGLAR EL ERROR 405 (LOGOUT) ---
 from django.contrib.auth import logout
 from django.shortcuts import redirect
-
-# Importamos las vistas desde la app
 from LabApp import views
 
 # ======================================================
 # 1. FUNCIÓN FIX PARA LOGOUT (DJANGO 5)
 # ======================================================
 def logout_fix(request):
-    """
-    Fuerza el cierre de sesión mediante GET y redirige al admin,
-    evitando el error 405 en Django 5.0+
-    """
     logout(request)
     return redirect('/admin/') 
 
@@ -29,8 +22,6 @@ router = DefaultRouter()
 router.register(r'pacientes', views.PacienteViewSet)
 router.register(r'laboratorios', views.LaboratorioViewSet)
 router.register(r'analisis', views.AnalisisViewSet)
-
-# 🌟 REGISTRO DE PLANTILLAS Y SUS DEPENDENCIAS
 router.register(r'plantillas', views.PlantillaViewSet) 
 router.register(r'propiedades_plantilla', views.PropiedadPlantillaViewSet)
 router.register(r'intervalos_referencia', views.IntervaloReferenciaViewSet)
@@ -39,28 +30,22 @@ router.register(r'intervalos_referencia', views.IntervaloReferenciaViewSet)
 # 3. PATRONES DE URL
 # ======================================================
 urlpatterns = [
-    # --- Fix del Logout (Debe ir antes de admin/) ---
     path('admin/logout/', logout_fix, name='logout_fix'),
-
-    # --- Rutas de Admin ---
     path('admin/', admin.site.urls),
-    
-    # Se renombró name="home" a name="inicio" para solucionar el error NoReverseMatch
     path('', views.inicio, name="inicio"), 
-    
-    # (Opcional) Ruta legacy por si algún enlace viejo la usa
     path("LabConriquezMex/", views.inicio, name="inicio_legacy"),
     
     # --- Rutas de la API ---
     path('api/', include(router.urls)),
-    
-    # --- Endpoints Personalizados ---
     path('api/login/', views.login_api, name='api_login'),
     path('api/mi_laboratorio/', views.mi_laboratorio_api, name='mi_laboratorio_api'),
+
+    # ✅ NUEVA: Ruta para generar PDF de un análisis
+    path('admin_ext/analisis/<int:pk>/generar_pdf/', views.generar_pdf_analisis, name='generar_pdf_analisis'),
 ]
 
 # ======================================================
-# 4. CONFIGURACIÓN DE MEDIA (SUBIDA DE IMÁGENES)
+# 4. CONFIGURACIÓN DE MEDIA
 # ======================================================
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

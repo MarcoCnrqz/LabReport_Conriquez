@@ -1,14 +1,13 @@
 from django.db import models
-from django.contrib.auth.hashers import make_password, check_password, is_password_usable
+from django.contrib.auth.hashers import make_password, check_password, is_password_usable #Sirve para 
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.db.models import Q 
 import os
 from datetime import date
 
-# =============================================================================
-# 1. TABLAS PRINCIPALES
-# =============================================================================
+
+# TABLAS PRINCIPALES
 
 class Laboratorio(models.Model):
     nombre_laboratorio = models.CharField(max_length=150)
@@ -18,7 +17,7 @@ class Laboratorio(models.Model):
     pais = models.CharField(max_length=100, null=True, blank=True)
     logo = models.ImageField(upload_to='logos_laboratorios/', null=True, blank=True)
     
-    #Se agrego responsable sanitario principal para mostrarlo en el PDF.
+    # Responsable sanitario principal para mostrarlo en el PDF.
     responsable_sanitario_principal = models.ForeignKey(
         'Usuario', on_delete=models.SET_NULL, null=True, blank=True, related_name='labs_bajo_cargo'
     )
@@ -29,7 +28,7 @@ class Laboratorio(models.Model):
         try:
             super().save(*args, **kwargs)
         except Exception as e:
-            print(f"❌ ERROR CRÍTICO AL GUARDAR LABORATORIO: {e}")
+            print(f"ERROR AL GUARDAR LABORATORIO: {e}")
             raise e
 
     def __str__(self):
@@ -45,9 +44,9 @@ class Usuario(models.Model):
     password = models.CharField(max_length=255, null=True, blank=True)
     laboratorios = models.ManyToManyField(Laboratorio, related_name='usuarios', blank=True)
 
-    # ✅ PUNTO 2: Campos Profesionales para PDF
-    puesto = models.CharField(max_length=100, blank=True, null=True) # Ej: Responsable Sanitario
-    titulo_abreviado = models.CharField(max_length=20, blank=True, null=True) # Ej: Q.F.B.
+    # Campos Profesionales para PDF
+    puesto = models.CharField(max_length=100, blank=True, null=True)
+    titulo_abreviado = models.CharField(max_length=20, blank=True, null=True)
     cedula_profesional = models.CharField(max_length=50, blank=True, null=True)
     cedula_especialidad = models.CharField(max_length=50, blank=True, null=True)
     registro_ssg = models.CharField(max_length=50, blank=True, null=True)
@@ -73,7 +72,6 @@ class Paciente(models.Model):
     SEXO_CHOICES = [("MASCULINO", "Masculino"), ("FEMENINO", "Femenino")]
     laboratorio = models.ForeignKey(Laboratorio, on_delete=models.CASCADE, related_name="pacientes")
     
-    # ✅ PUNTO 1: Nombres divididos
     nombre = models.CharField(max_length=100)
     apellido_paterno = models.CharField(max_length=100)
     apellido_materno = models.CharField(max_length=100, blank=True, null=True)
@@ -94,11 +92,22 @@ class Paciente(models.Model):
             return today.year - self.fecha_nacimiento.year - ((today.month, today.day) < (self.fecha_nacimiento.month, self.fecha_nacimiento.day))
         return 0
 
+    @property
+    def edad_en_meses(self):
+        if self.fecha_nacimiento:
+            today = date.today()
+            meses = (today.year - self.fecha_nacimiento.year) * 12
+            meses += today.month - self.fecha_nacimiento.month
+            if today.day < self.fecha_nacimiento.day:
+                meses -= 1
+            return max(meses, 0)
+        return 0
+
     def __str__(self):
         return self.nombre_completo
 
 # =============================================================================
-# 2. SISTEMA DE PLANTILLAS Y LOINC
+# SISTEMA DE PLANTILLAS Y LOINC
 # =============================================================================
 
 class LoincCode(models.Model):
@@ -143,20 +152,26 @@ class PropiedadPlantilla(models.Model):
 
 class IntervaloReferencia(models.Model):
     propiedad = models.ForeignKey(PropiedadPlantilla, on_delete=models.CASCADE, related_name="intervalos")
-    EDADES = [("NINO", "Niño"), ("ADULTO", "Adulto"), ("ADULTO_MAYOR", "Adulto Mayor")]
+
     SEXOS = [("MASCULINO", "Masculino"), ("FEMENINO", "Femenino"), ("AMBOS", "Ambos")]
-    grupo_edad = models.CharField(max_length=20, choices=EDADES, null=True, blank=True)
     sexo = models.CharField(max_length=10, choices=SEXOS, default="AMBOS", null=True, blank=True)
+
+    # Rango numérico en meses — cubre desde recién nacidos hasta adultos mayores
+    # Ejemplos: 0-0=recién nacido, 1-11=lactante, 12-59=preescolar,
+    #           60-215=escolar/adolescente, 216+=adulto (edad_max_meses=None)
+    edad_min_meses = models.PositiveSmallIntegerField(null=True, blank=True)
+    edad_max_meses = models.PositiveSmallIntegerField(null=True, blank=True)
+
     valor_min = models.FloatField(null=True, blank=True)
     valor_max = models.FloatField(null=True, blank=True)
     sincronizado = models.BooleanField(default=False)
     fecha_modificacion = models.DateTimeField(auto_now=True)
     
     class Meta:
-        unique_together = ('propiedad', 'grupo_edad', 'sexo')
+        unique_together = ('propiedad', 'edad_min_meses', 'edad_max_meses', 'sexo')
 
 # =============================================================================
-# 3. ANÁLISIS, RESULTADOS Y REPORTES
+# ANÁLISIS Y RESULTADOS
 # =============================================================================
 
 class Analisis(models.Model):
@@ -170,6 +185,20 @@ class Analisis(models.Model):
     hora_toma = models.TimeField(null=True, blank=True)
     hora_impresion = models.TimeField(null=True, blank=True)
 
+    # ✅ Imágenes del análisis completo (microscopio, diagrama, etc.)
+    #    Solo aplican cuando plantilla.tipo_formato == 'IMAGENES_RESULTADOS'
+    imagen_resultado1 = models.ImageField(upload_to='resultados_imagenes/', null=True, blank=True)
+    imagen_resultado2 = models.ImageField(upload_to='resultados_imagenes/', null=True, blank=True)
+
+    def save(self, *args, **kwargs):
+        if self.imagen_resultado1 or self.imagen_resultado2:
+            print(f"DEBUG: Guardando imágenes en Análisis ID: {self.id or 'Nuevo'}")
+        try:
+            super().save(*args, **kwargs)
+        except Exception as e:
+            print(f"ERROR AL GUARDAR ANÁLISIS: {e}")
+            raise e
+
     def __str__(self):
         return f"Análisis {self.id} - {self.paciente.nombre_completo}"
 
@@ -179,39 +208,42 @@ class ResultadoAnalisis(models.Model):
     nombre_propiedad = models.CharField(max_length=100, null=True, blank=True)
     valor = models.CharField(max_length=100, blank=True, null=True)
     unidad = models.CharField(max_length=20, null=True, blank=True)
-    valor_blob1 = models.ImageField(upload_to='resultados_imagenes/', null=True, blank=True)
-    valor_blob2 = models.ImageField(upload_to='resultados_imagenes/', null=True, blank=True)
-
-    def save(self, *args, **kwargs):
-        if self.valor_blob1 or self.valor_blob2:
-            print(f"DEBUG: Intentando guardar imagen en ResultadoAnalisis ID: {self.id or 'Nuevo'}")
-        try:
-            super().save(*args, **kwargs)
-        except Exception as e:
-            print(f"❌ ERROR CRÍTICO AL GUARDAR RESULTADO ANALISIS: {e}")
-            raise e
+    # valor_blob1 y valor_blob2 eliminados — las imágenes ahora viven en Analisis
 
     def __str__(self):
         return f"{self.nombre_propiedad}: {self.valor}"
 
-class Reporte(models.Model):
-    analisis = models.ForeignKey(Analisis, on_delete=models.CASCADE, related_name="reportes")
-    generado_por = models.ForeignKey(Usuario, on_delete=models.SET_NULL, null=True, blank=True)
-    fecha_generacion = models.DateTimeField(auto_now_add=True)
 
-# =============================================================================
-# 4. SEÑALES
-# =============================================================================
+# SEÑALES
+
 
 @receiver(post_save, sender=Analisis)
 def crear_resultados_predeterminados(sender, instance, created, **kwargs):
     if created and instance.plantilla and instance.plantilla.tipo_formato != 'RECETA_JUSTIFICADA':
-        for propiedad in instance.plantilla.propiedades.all():
-            ResultadoAnalisis.objects.create(
-                analisis=instance,
-                loinc_code=propiedad.loinc_code,
-                nombre_propiedad=propiedad.nombre_propiedad,
-                valor='',
-                unidad=propiedad.unidad
-            )  
+        paciente = instance.paciente
+        edad_meses = paciente.edad_en_meses
 
+        for propiedad in instance.plantilla.propiedades.all():
+            total_intervalos = propiedad.intervalos.count()
+
+            if total_intervalos == 0:
+                # Propiedad sin intervalos configurados → incluir siempre
+                crear = True
+            else:
+                # Solo incluir si hay un intervalo compatible con edad y sexo del paciente
+                crear = propiedad.intervalos.filter(
+                    Q(sexo=paciente.sexo) | Q(sexo="AMBOS")
+                ).filter(
+                    Q(edad_min_meses__isnull=True) | Q(edad_min_meses__lte=edad_meses)
+                ).filter(
+                    Q(edad_max_meses__isnull=True) | Q(edad_max_meses__gte=edad_meses)
+                ).exists()
+
+            if crear:
+                ResultadoAnalisis.objects.create(
+                    analisis=instance,
+                    loinc_code=propiedad.loinc_code,
+                    nombre_propiedad=propiedad.nombre_propiedad,
+                    valor='',
+                    unidad=propiedad.unidad
+                )
