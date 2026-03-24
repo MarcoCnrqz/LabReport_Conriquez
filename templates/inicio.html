@@ -5,6 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Laboratorio Clínico ICE - Información</title>
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -13,77 +14,72 @@
             flex-direction: column;
             align-items: center;
             min-height: 100vh;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-family: 'DM Sans', sans-serif;
             background-color: #d3dd26;
             color: #333;
-            padding: 20px 0;
+            padding: 28px 16px;
         }
 
-        /* TARJETA PRINCIPAL */
+        /* ── CARD PRINCIPAL ── */
         .card {
-            background: #f1fff8;
-            padding: 32px 28px;
-            border-radius: 20px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.08);
-            text-align: center;
-            width: 90%;
-            max-width: 500px;
+            background: #ffffff;
+            padding: 36px 36px 28px;
+            border-radius: 24px;
+            box-shadow: 0 12px 40px rgba(0,0,0,0.10);
+            width: 100%;
+            max-width: 960px;
             margin-bottom: 20px;
-            border: 1px solid #d4e9e2;
         }
 
-        /* LOGO */
-        .login-logo {
-            margin-bottom: 20px;
+        /* ── HEADER: logo + títulos centrados ── */
+        .header {
             display: flex;
-            justify-content: center;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            margin-bottom: 32px;
+            padding-bottom: 28px;
+            border-bottom: 2px solid #e8f4fe;
         }
-        .logo {
-            max-width: 180px;
-            height: auto;
-            display: block;
-        }
-
-        /* TÍTULOS */
+        .logo { max-width: 160px; height: auto; margin-bottom: 16px; }
         h1 {
+            font-family: 'Playfair Display', serif;
             color: #0d47a1;
-            margin-bottom: 5px;
-            font-size: 26px;
-            font-weight: 600;
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 4px;
         }
         p.subtitle {
             color: #546e7a;
-            margin-top: 0;
-            margin-bottom: 25px;
-            font-size: 16px;
-            font-weight: 500;
+            font-size: 15px;
+            font-weight: 400;
         }
 
-        /* TÍTULOS DE SECCIÓN */
+        /* ── SECCIÓN IDENTIDAD: acordeones centrados ── */
+        .identity-section {
+            margin-bottom: 32px;
+        }
         .section-title {
-            font-size: 14px;
+            font-size: 13px;
             font-weight: 600;
             color: #0d47a1;
-            margin-bottom: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            margin-bottom: 14px;
             display: flex;
             align-items: center;
-            gap: 6px;
-            text-align: left;
+            gap: 7px;
         }
-
-        /* ACORDEÓN */
         .accordion {
             border: 1px solid #bbdefb;
-            border-radius: 12px;
+            border-radius: 14px;
             overflow: hidden;
-            margin-bottom: 20px;
-            text-align: left;
         }
         .acc-tab {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 12px 16px;
+            padding: 13px 18px;
             background: #e3f2fd;
             cursor: pointer;
             user-select: none;
@@ -91,7 +87,7 @@
         }
         .acc-tab:hover { background: #bbdefb; }
         .acc-tab-label {
-            font-size: 14px;
+            font-size: 13px;
             font-weight: 600;
             color: #0d47a1;
             display: flex;
@@ -99,7 +95,7 @@
             gap: 8px;
         }
         .acc-arrow {
-            font-size: 12px;
+            font-size: 11px;
             color: #1976d2;
             transition: transform 0.25s;
         }
@@ -109,82 +105,54 @@
             max-height: 0;
             transition: max-height 0.35s ease, padding 0.25s;
         }
-        .acc-body.open {
-            max-height: 600px;
-            padding: 16px;
-        }
+        .acc-body.open { max-height: 700px; padding: 18px; }
         .acc-body p {
             font-size: 13px;
             color: #455a64;
-            line-height: 1.6;
+            line-height: 1.7;
             font-style: italic;
         }
         .acc-separator { height: 1px; background: #bbdefb; }
         .mv-label {
             font-size: 13px;
-            font-weight: 600;
+            font-weight: 700;
             color: #0d47a1;
             display: block;
-            margin-bottom: 6px;
+            margin-bottom: 7px;
         }
-        .mv-divider { height: 1px; background: #e3f2fd; margin: 12px 0; }
-
-        /* VALORES */
-        .values-list { list-style: none; margin-bottom: 0; }
+        .mv-divider { height: 1px; background: #e3f2fd; margin: 14px 0; }
+        .values-list { list-style: none; }
         .values-list li {
             background: #e3f2fd;
             border-left: 4px solid #1976d2;
             border-radius: 0 8px 8px 0;
-            padding: 10px 12px;
+            padding: 10px 13px;
             margin-bottom: 8px;
             font-size: 13px;
             color: #1565c0;
-            line-height: 1.4;
+            line-height: 1.5;
         }
         .values-list li:last-child { margin-bottom: 0; }
-        .values-list li strong {
-            display: block;
-            color: #0d47a1;
-            margin-bottom: 2px;
-        }
+        .values-list li strong { display: block; color: #0d47a1; margin-bottom: 2px; }
 
-        /* SERVICIOS */
-        .services-grid {
+        /* ── ROW: GALERÍA (izq) + SERVICIOS (der) ── */
+        .row-two-col {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 8px;
-            margin-bottom: 20px;
-            text-align: left;
-        }
-        .service-item {
-            background: #e3f2fd;
-            border-radius: 8px;
-            padding: 8px 10px;
-            font-size: 13px;
-            color: #1565c0;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-        .service-item::before {
-            content: "";
-            width: 6px;
-            height: 6px;
-            border-radius: 50%;
-            background: #1976d2;
-            flex-shrink: 0;
+            gap: 28px;
+            margin-bottom: 32px;
+            align-items: start;
         }
 
-        /* GALERÍA */
-        .gallery-section { margin-bottom: 20px; text-align: left; }
+        /* ── GALERÍA ── */
         .gallery-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 10px;
+            gap: 8px;
         }
         .gallery-item {
             position: relative;
-            border-radius: 12px;
+            border-radius: 10px;
             overflow: hidden;
             border: 2px solid #bbdefb;
             cursor: pointer;
@@ -192,16 +160,8 @@
             background: #e3f2fd;
             aspect-ratio: 4/3;
         }
-        .gallery-item:hover {
-            border-color: #1976d2;
-            transform: scale(1.02);
-        }
-        .gallery-item img {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-            display: block;
-        }
+        .gallery-item:hover { border-color: #1976d2; transform: scale(1.02); }
+        .gallery-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
         .gallery-placeholder {
             width: 100%;
             height: 100%;
@@ -209,24 +169,141 @@
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            gap: 6px;
-            background: #e3f2fd;
+            gap: 5px;
         }
-        .gallery-placeholder span { font-size: 28px; }
+        .gallery-placeholder span { font-size: 22px; }
         .gallery-placeholder p {
             font-size: 11px;
             color: #1976d2;
             font-weight: 600;
             text-align: center;
-            padding: 0 8px;
+            padding: 0 6px;
             font-style: normal;
         }
-        .gallery-item-wide {
-            grid-column: span 2;
-            aspect-ratio: 16/7;
+        .gallery-item-wide { grid-column: span 2; aspect-ratio: 16/7; }
+
+        /* ── SERVICIOS ── */
+        .services-col { display: flex; flex-direction: column; }
+        .services-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 8px;
+        }
+        .service-item {
+            background: #e3f2fd;
+            border-radius: 8px;
+            padding: 10px 14px;
+            font-size: 13px;
+            color: #1565c0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 500;
+            transition: background 0.2s;
+        }
+        .service-item:hover { background: #bbdefb; }
+        .service-item::before {
+            content: "";
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: #1976d2;
+            flex-shrink: 0;
         }
 
-        /* LIGHTBOX */
+        /* ── ROW: UBICACIÓN (izq) + HORARIOS (der) ── */
+        .row-location {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 28px;
+            margin-bottom: 28px;
+            align-items: start;
+        }
+
+        /* ── UBICACIÓN ── */
+        .location-box {
+            background: #fff;
+            border: 2px solid #1976d2;
+            border-radius: 14px;
+            padding: 16px;
+            height: 100%;
+            transition: border-color 0.3s, box-shadow 0.3s;
+        }
+        .location-box:hover { border-color: #0d47a1; box-shadow: 0 6px 16px rgba(0,0,0,0.12); }
+        .location-link {
+            text-decoration: none;
+            color: #1565c0;
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .location-icon { font-size: 24px; line-height: 1; }
+        .location-text strong { display: block; font-size: 13px; color: #0d47a1; }
+        .location-text span { font-size: 12px; color: #607d8b; display: block; line-height: 1.5; }
+        .maps-hint { color: #1976d2; font-size: 12px; margin-top: 5px; display: block; font-weight: 600; }
+
+        /* ── HORARIOS ── */
+        .hours-box {
+            background: #e3f2fd;
+            border: 1px solid #bbdefb;
+            border-radius: 14px;
+            padding: 16px;
+            height: 100%;
+        }
+        .hours-row {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+        .hours-row:last-child { margin-bottom: 0; }
+        .hours-icon { font-size: 18px; line-height: 1.2; }
+        .hours-text strong { display: block; font-size: 13px; color: #0d47a1; }
+        .hours-text span { font-size: 12px; color: #546e7a; display: block; }
+
+        /* ── REDES SOCIALES ── */
+        .social-section {
+            border-top: 1px solid #e3f2fd;
+            padding-top: 22px;
+            text-align: center;
+        }
+        .social-links {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+        }
+        .social-btn {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 54px;
+            height: 54px;
+            border-radius: 50%;
+            background-color: #e3f2fd;
+            text-decoration: none;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.10);
+            transition: all 0.3s ease;
+        }
+        .social-btn img { width: 28px; height: 28px; }
+        .social-btn:hover { transform: translateY(-3px) scale(1.07); background-color: #bbdefb; }
+
+        /* ── FOOTER ── */
+        .full-width-footer {
+            width: 100%;
+            background-color: #eeeeee;
+            padding: 20px 0;
+            margin-top: auto;
+            text-align: center;
+            color: #546e7a;
+            font-size: 13px;
+            font-weight: 500;
+            border-top: 1px solid #e0e0e0;
+        }
+        .footer-content { max-width: 960px; margin: 0 auto; padding: 0 20px; }
+        .footer-content strong { color: #37474f; display: block; margin-top: 5px; }
+
+        /* ── LIGHTBOX ── */
         .lightbox {
             display: none;
             position: fixed;
@@ -242,16 +319,11 @@
             background: #f1fff8;
             border-radius: 16px;
             overflow: hidden;
-            max-width: 460px;
+            max-width: 480px;
             width: 100%;
             border: 2px solid #1976d2;
         }
-        .lightbox-img {
-            width: 100%;
-            aspect-ratio: 16/9;
-            object-fit: cover;
-            display: block;
-        }
+        .lightbox-img { width: 100%; aspect-ratio: 16/9; object-fit: cover; display: block; }
         .lightbox-img-placeholder {
             width: 100%;
             aspect-ratio: 16/9;
@@ -261,23 +333,14 @@
             justify-content: center;
             font-size: 52px;
         }
-        .lightbox-body { padding: 14px 16px; }
-        .lightbox-title {
-            font-size: 15px;
-            font-weight: 600;
-            color: #0d47a1;
-            margin-bottom: 4px;
-        }
-        .lightbox-desc {
-            font-size: 13px;
-            color: #546e7a;
-            line-height: 1.5;
-        }
+        .lightbox-body { padding: 14px 18px; }
+        .lightbox-title { font-size: 15px; font-weight: 600; color: #0d47a1; margin-bottom: 4px; }
+        .lightbox-desc { font-size: 13px; color: #546e7a; line-height: 1.5; }
         .lightbox-close {
             display: block;
             margin-top: 12px;
             text-align: center;
-            padding: 8px;
+            padding: 9px;
             background: #e3f2fd;
             border-radius: 8px;
             font-size: 13px;
@@ -290,124 +353,11 @@
         }
         .lightbox-close:hover { background: #bbdefb; }
 
-        /* UBICACIÓN */
-        .location-box {
-            background: #ffffff;
-            border: 2px solid #1976d2;
-            border-radius: 12px;
-            padding: 14px;
-            margin-bottom: 12px;
-            transition: border-color 0.3s, box-shadow 0.3s;
-            text-align: left;
-        }
-        .location-box:hover {
-            border-color: #0d47a1;
-            box-shadow: 0 6px 15px rgba(0,0,0,0.15);
-        }
-        .location-link {
-            text-decoration: none;
-            color: #1565c0;
-            display: flex;
-            align-items: flex-start;
-            gap: 10px;
-        }
-        .location-icon { font-size: 24px; line-height: 1; }
-        .location-text strong {
-            display: block;
-            font-size: 13px;
-            color: #0d47a1;
-        }
-        .location-text span {
-            font-size: 12px;
-            color: #607d8b;
-            display: block;
-            line-height: 1.4;
-        }
-        .maps-hint {
-            color: #1976d2;
-            font-size: 12px;
-            margin-top: 4px;
-            display: block;
-        }
-
-        /* HORARIOS */
-        .hours-box {
-            background: #e3f2fd;
-            border: 1px solid #bbdefb;
-            border-radius: 12px;
-            padding: 14px;
-            margin-bottom: 20px;
-            text-align: left;
-        }
-        .hours-row {
-            display: flex;
-            align-items: flex-start;
-            gap: 10px;
-            margin-bottom: 10px;
-        }
-        .hours-row:last-child { margin-bottom: 0; }
-        .hours-icon { font-size: 18px; line-height: 1.2; }
-        .hours-text strong {
-            display: block;
-            font-size: 13px;
-            color: #0d47a1;
-        }
-        .hours-text span {
-            font-size: 12px;
-            color: #546e7a;
-            display: block;
-        }
-
-        /* REDES SOCIALES */
-        .social-section {
-            margin-top: 25px;
-            border-top: 1px solid #d4e9e2;
-            padding-top: 20px;
-        }
-        .social-links {
-            display: flex;
-            justify-content: center;
-            gap: 20px;
-        }
-        .social-btn {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            width: 55px;
-            height: 55px;
-            border-radius: 50%;
-            background-color: #e3f2fd;
-            text-decoration: none;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-            transition: all 0.3s ease;
-        }
-        .social-btn img { width: 30px; height: 30px; }
-        .social-btn:hover {
-            transform: translateY(-3px) scale(1.05);
-            background-color: #bbdefb;
-        }
-
-        /* FOOTER */
-        .full-width-footer {
-            width: 100%;
-            background-color: #eeeeee;
-            padding: 20px 0;
-            margin-top: auto;
-            text-align: center;
-            color: #546e7a;
-            font-size: 13px;
-            font-weight: 500;
-            border-top: 1px solid #e0e0e0;
-        }
-        .footer-content {
-            max-width: 500px;
-            margin: 0 auto;
-            padding: 0 20px;
-        }
-        .footer-content strong {
-            color: #37474f;
-            display: block;
-            margin-top: 5px;
+        /* ── RESPONSIVE ── */
+        @media (max-width: 640px) {
+            .card { padding: 24px 18px; }
+            .row-two-col,
+            .row-location { grid-template-columns: 1fr; gap: 20px; }
         }
     </style>
 </head>
@@ -415,150 +365,141 @@
 
     <div class="card">
 
-        <!-- LOGO -->
-        <div class="login-logo">
+        <!-- ══ HEADER ══ -->
+        <div class="header">
             <img src="{% static 'admin/LogoICE.png' %}" alt="Logo Laboratorio ICE" class="logo">
+            <h1>Laboratorio Clínico ICE</h1>
+            <p class="subtitle">Especialistas en Hematología y Análisis Clínicos</p>
         </div>
 
-        <h1>Laboratorio Clínico ICE</h1>
-        <p class="subtitle">Especialistas en Hematología y Análisis Clínicos</p>
+        <!-- ══ IDENTIDAD (acordeones) ══ -->
+        <div class="identity-section">
+            <div class="section-title">📍 Nuestra Identidad</div>
+            <div class="accordion">
 
-        <!-- ACORDEÓN: IDENTIDAD -->
-        <div class="section-title">&#x1F4CD; Nuestra Identidad</div>
-        <div class="accordion">
+                <div class="acc-tab" onclick="toggle('mv')">
+                    <span class="acc-tab-label"><span>🎯</span> Misión y Visión</span>
+                    <span class="acc-arrow" id="arr-mv">▼</span>
+                </div>
+                <div class="acc-body" id="mv">
+                    <span class="mv-label">🎯 Misión</span>
+                    <p>Brindamos servicios de análisis clínicos de la más alta calidad, comprometidos con la precisión diagnóstica, la cordialidad y el respeto hacia nuestros pacientes y colaboradores. Somos especialistas en enfermedades de la sangre, con enfoque en casos raros y de difícil interpretación, ofreciendo resultados confiables que apoyan un diagnóstico oportuno.</p>
+                    <div class="mv-divider"></div>
+                    <span class="mv-label">🔭 Visión</span>
+                    <p>Ser el laboratorio clínico líder de la región, reconocido por nuestra honestidad, excelencia y trato amable. Aspiramos a ser la primera opción para pacientes y profesionales de la salud, brindando confianza, bienestar y diagnósticos especializados que marcan la diferencia.</p>
+                </div>
 
-            <div class="acc-tab" onclick="toggle('mv')">
-                <span class="acc-tab-label"><span>&#x1F3AF;</span> Misión y Visión</span>
-                <span class="acc-arrow" id="arr-mv">▼</span>
+                <div class="acc-separator"></div>
+
+                <div class="acc-tab" onclick="toggle('vals')">
+                    <span class="acc-tab-label"><span>✨</span> Principios Fundamentales</span>
+                    <span class="acc-arrow" id="arr-vals">▼</span>
+                </div>
+                <div class="acc-body" id="vals">
+                    <ul class="values-list">
+                        <li><strong>1. Trato Humano y Profesional</strong>Brindamos atención cálida, respetuosa y empática a nuestros pacientes, médicos y colaboradores.</li>
+                        <li><strong>2. Precisión y Excelencia Diagnóstica</strong>Realizamos cada análisis con rigor, exactitud y responsabilidad, garantizando resultados confiables.</li>
+                        <li><strong>3. Innovación Tecnológica</strong>Incorporamos tecnología de vanguardia y métodos actualizados que elevan la calidad diagnóstica.</li>
+                        <li><strong>4. Desarrollo y Capacitación Continua</strong>Impulsamos la formación constante de nuestro equipo para brindar un servicio cada vez mejor.</li>
+                        <li><strong>5. Trabajo en Equipo y Respeto Mutuo</strong>Fomentamos la colaboración y comunicación abierta entre todos para resultados extraordinarios.</li>
+                    </ul>
+                </div>
+
             </div>
-            <div class="acc-body" id="mv">
-                <span class="mv-label">&#x1F3AF; Misión</span>
-                <p>Brindamos servicios de an&#xE1;lisis cl&#xED;nicos de la m&#xE1;s alta calidad, comprometidos con la precisi&#xF3;n diagn&#xF3;stica, la cordialidad y el respeto hacia nuestros pacientes y colaboradores. Somos especialistas en enfermedades de la sangre, con enfoque en casos raros y de dif&#xED;cil interpretaci&#xF3;n, ofreciendo resultados confiables que apoyan un diagn&#xF3;stico oportuno.</p>
-                <div class="mv-divider"></div>
-                <span class="mv-label">&#x1F52D; Visión</span>
-                <p>Ser el laboratorio cl&#xED;nico l&#xED;der de la regi&#xF3;n, reconocido por nuestra honestidad, excelencia y trato amable. Aspiramos a ser la primera opci&#xF3;n para pacientes y profesionales de la salud, brindando confianza, bienestar y diagn&#xF3;sticos especializados que marcan la diferencia.</p>
-            </div>
-
-            <div class="acc-separator"></div>
-
-            <div class="acc-tab" onclick="toggle('vals')">
-                <span class="acc-tab-label"><span>&#x2728;</span> Principios Fundamentales</span>
-                <span class="acc-arrow" id="arr-vals">▼</span>
-            </div>
-            <div class="acc-body" id="vals">
-                <ul class="values-list">
-                    <li>
-                        <strong>1. Trato Humano y Profesional</strong>
-                        Brindamos atenci&#xF3;n c&#xE1;lida, respetuosa y emp&#xE1;tica a nuestros pacientes, m&#xE9;dicos y colaboradores.
-                    </li>
-                    <li>
-                        <strong>2. Precisi&#xF3;n y Excelencia Diagn&#xF3;stica</strong>
-                        Realizamos cada an&#xE1;lisis con rigor, exactitud y responsabilidad, garantizando resultados confiables.
-                    </li>
-                    <li>
-                        <strong>3. Innovaci&#xF3;n Tecnol&#xF3;gica</strong>
-                        Incorporamos tecnolog&#xED;a de vanguardia y m&#xE9;todos actualizados que elevan la calidad diagn&#xF3;stica.
-                    </li>
-                    <li>
-                        <strong>4. Desarrollo y Capacitaci&#xF3;n Continua</strong>
-                        Impulsamos la formaci&#xF3;n constante de nuestro equipo para brindar un servicio cada vez mejor.
-                    </li>
-                    <li>
-                        <strong>5. Trabajo en Equipo y Respeto Mutuo</strong>
-                        Fomentamos la colaboraci&#xF3;n y comunicaci&#xF3;n abierta entre todos para resultados extraordinarios.
-                    </li>
-                </ul>
-            </div>
-
         </div>
 
-        <!-- SERVICIOS -->
-        <div class="section-title">&#x1F9EA; Nuestros An&#xE1;lisis y Servicios</div>
-        <div class="services-grid">
-            <div class="service-item">Qu&#xED;mica Sangu&#xED;nea</div>
-            <div class="service-item">Examen General de Orina</div>
-            <div class="service-item">Perfil de L&#xED;pidos</div>
-            <div class="service-item">Ant&#xED;geno Prost&#xE1;tico</div>
-            <div class="service-item">Ex&#xE1;menes Ginecol&#xF3;gicos</div>
-            <div class="service-item">Especialista en Hematolog&#xED;a</div>
-        </div>
+        <!-- ══ FILA: GALERÍA (izq) + SERVICIOS (der) ══ -->
+        <div class="row-two-col">
 
-        <!-- GALERÍA -->
-        <div class="gallery-section">
-            <div class="section-title">&#x1F4F8; Nuestro Laboratorio</div>
-            <div class="gallery-grid">
-
-                <!-- Imagen 1 (ancha) -->
-                <div class="gallery-item gallery-item-wide" onclick="openLightbox(0)">
-                    <img src="{% static 'admin/Laboratorio.jpeg' %}" alt="Fachada principal">
-                </div>
-
-                <!-- Imagen 2 -->
-                <div class="gallery-item" onclick="openLightbox(1)">
-                    <img src="{% static 'admin/JuanIrving.jpeg' %}" alt="Área de microscopía">
-                </div>
-
-                <!-- Imagen 3 -->
-                <div class="gallery-item" onclick="openLightbox(2)">
-                    <img src="{% static 'admin/Equipos.jpeg' %}" alt="Equipos de análisis">
-                </div>
-
-                <!-- Imagen 4 -->
-                <div class="gallery-item" onclick="openLightbox(3)">
-                    <img src="{% static 'admin/Prueba.jpeg' %}" alt="Toma de muestras">
-                </div>
-
-                <!-- Imagen 5 (sin imagen aún) -->
-                <div class="gallery-item" onclick="openLightbox(4)">
-                    <div class="gallery-placeholder">
-                        <span>&#x1F468;&#x200D;&#x2695;&#xFE0F;</span>
-                        <p>Nuestro equipo</p>
+            <!-- Galería -->
+            <div>
+                <div class="section-title">📸 Nuestro Laboratorio</div>
+                <div class="gallery-grid">
+                    <div class="gallery-item gallery-item-wide" onclick="openLightbox(0)">
+                        <img src="{% static 'admin/Laboratorio.jpeg' %}" alt="Fachada principal">
+                    </div>
+                    <div class="gallery-item" onclick="openLightbox(1)">
+                        <img src="{% static 'admin/JuanIrving.jpeg' %}" alt="Área de microscopía">
+                    </div>
+                    <div class="gallery-item" onclick="openLightbox(2)">
+                        <img src="{% static 'admin/Equipos.jpeg' %}" alt="Equipos de análisis">
+                    </div>
+                    <div class="gallery-item" onclick="openLightbox(3)">
+                        <img src="{% static 'admin/Prueba.jpeg' %}" alt="Toma de muestras">
+                    </div>
+                    <div class="gallery-item" onclick="openLightbox(4)">
+                        <div class="gallery-placeholder">
+                            <span>👨‍⚕️</span>
+                            <p>Nuestro equipo</p>
+                        </div>
                     </div>
                 </div>
-
             </div>
+
+            <!-- Servicios -->
+            <div class="services-col">
+                <div class="section-title">🧪 Nuestros Análisis y Servicios</div>
+                <div class="services-grid">
+                    <div class="service-item">Química Sanguínea</div>
+                    <div class="service-item">Examen General de Orina</div>
+                    <div class="service-item">Perfil de Lípidos</div>
+                    <div class="service-item">Antígeno Prostático</div>
+                    <div class="service-item">Exámenes Ginecológicos</div>
+                    <div class="service-item">Especialista en Hematología</div>
+                </div>
+            </div>
+
         </div>
 
-        <!-- UBICACIÓN -->
-        <div class="location-box">
-            <div class="section-title" style="border:none; margin-bottom:10px; padding:0;">&#x1F4CD; Ubicaci&#xF3;n Principal</div>
-            <a href="https://maps.app.goo.gl/fmkPhrRPGBrPgQ6d7" target="_blank" class="location-link">
-                <span class="location-icon">&#x1F5FA;</span>
-                <div class="location-text">
-                    <strong>El Varal, Av. L&#xE1;zaro C&#xE1;rdenas, Benito Ju&#xE1;rez esquina</strong>
-                    <span>36970 Abasolo, Guanajuato</span>
-                    <span class="maps-hint">Abrir en Google Maps &#x2192;</span>
+        <!-- ══ FILA: UBICACIÓN (izq) + HORARIOS (der) ══ -->
+        <div class="row-location">
+
+            <!-- Ubicación -->
+            <div>
+                <div class="section-title">📍 Ubicación Principal</div>
+                <div class="location-box">
+                    <a href="https://maps.app.goo.gl/fmkPhrRPGBrPgQ6d7" target="_blank" class="location-link">
+                        <span class="location-icon">🗺</span>
+                        <div class="location-text">
+                            <strong>El Varal, Av. Lázaro Cárdenas, Benito Juárez esquina</strong>
+                            <span>36970 Abasolo, Guanajuato</span>
+                            <span class="maps-hint">Abrir en Google Maps →</span>
+                        </div>
+                    </a>
                 </div>
-            </a>
+            </div>
+
+            <!-- Horarios -->
+            <div>
+                <div class="section-title">⏰ Horarios de Atención</div>
+                <div class="hours-box">
+                    <div class="hours-row">
+                        <span class="hours-icon">📅</span>
+                        <div class="hours-text">
+                            <strong>Lunes a Viernes</strong>
+                            <span>7:30 AM – 2:00 PM &nbsp;|&nbsp; 4:30 PM – 7:00 PM</span>
+                        </div>
+                    </div>
+                    <div class="hours-row">
+                        <span class="hours-icon">☀️</span>
+                        <div class="hours-text">
+                            <strong>Sábados</strong>
+                            <span>7:30 AM – 2:00 PM</span>
+                        </div>
+                    </div>
+                    <div class="hours-row">
+                        <span class="hours-icon">☀️</span>
+                        <div class="hours-text">
+                            <strong>Domingos</strong>
+                            <span>8:00 AM – 1:00 PM</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
         </div>
 
-        <!-- HORARIOS -->
-        <div class="hours-box">
-            <div class="section-title" style="border:none; margin-bottom:12px; padding:0; color:#0d47a1;">&#x23F0; Horarios de Atenci&#xF3;n</div>
-            <div class="hours-row">
-                <span class="hours-icon">&#x1F4C5;</span>
-                <div class="hours-text">
-                    <strong>Lunes a Viernes</strong>
-                    <span>7:30 AM - 2:00 PM &nbsp;|&nbsp; 4:30 PM - 7:00 PM</span>
-                </div>
-            </div>
-            <div class="hours-row">
-                <span class="hours-icon">&#x2600;</span>
-                <div class="hours-text">
-                    <strong>S&#xE1;bados</strong>
-                    <span>7:30 AM - 2:00 PM</span>
-                </div>
-            </div>
-            <div class="hours-row">
-                <span class="hours-icon">&#x2600;</span>
-                <div class="hours-text">
-                    <strong>Domingos</strong>
-                    <span>8:00 AM - 1:00 PM</span>
-                </div>
-            </div>
-        </div>
-
-        <!-- REDES SOCIALES -->
+        <!-- ══ REDES SOCIALES ══ -->
         <div class="social-section">
             <div class="social-links">
                 <a href="https://www.facebook.com/share/1AiAQF9zzK/" target="_blank" class="social-btn" title="Facebook">
@@ -572,15 +513,15 @@
 
     </div>
 
-    <!-- FOOTER -->
+    <!-- ══ FOOTER ══ -->
     <div class="full-width-footer">
         <div class="footer-content">
-            www.icelaboratorio.com 2025
-            <strong>Realiza tus an&#xE1;lisis, solicita una cita.</strong>
+            www.icelaboratorio.com 2026
+            <strong>Realiza tus análisis, solicita una cita.</strong>
         </div>
     </div>
 
-    <!-- LIGHTBOX -->
+    <!-- ══ LIGHTBOX ══ -->
     <div class="lightbox" id="lightbox" onclick="closeLightbox(event)">
         <div class="lightbox-inner">
             <div id="lb-media"></div>
@@ -593,17 +534,12 @@
     </div>
 
     <script>
-        /* ── Datos de la galería ──────────────────────────────────────────
-           Para agregar imágenes reales, cambia "src" de null a la ruta:
-           src: "{% static 'admin/fachada.jpg' %}"
-           Si src es null se muestra el ícono placeholder en el lightbox.
-        ───────────────────────────────────────────────────────────────── */
         var galeriaItems = [
-            { src: "{% static 'admin/Laboratorio.jpeg' %}",  icon: "&#x1F3E5;", title: "Fachada principal",   desc: "Así nos verás al llegar. Estamos en Av. Lázaro Cárdenas, Abasolo, Guanajuato." },
-            { src: "{% static 'admin/JuanIrving.jpeg' %}",   icon: "&#x1F52C;", title: "Área de microscopía", desc: "Microscopios de última generación para análisis hematológicos especializados." },
-            { src: "{% static 'admin/Equipos.jpeg' %}",      icon: "&#x1F9EC;", title: "Equipos de análisis", desc: "Tecnología de vanguardia para resultados precisos en el menor tiempo posible." },
-            { src: "{% static 'admin/Prueba.jpeg' %}",       icon: "&#x1FA7A;", title: "Toma de muestras",    desc: "Área cómoda y segura con personal capacitado y amable." },
-            { src: null, icon: "&#x1F468;&#x200D;&#x2695;&#xFE0F;", title: "Nuestro equipo", desc: "Profesionales comprometidos con tu salud, especializados en hematología." }
+            { src: "{% static 'admin/Laboratorio.jpeg' %}",  icon: "🏥", title: "Fachada principal",   desc: "Así nos verás al llegar. Estamos en Av. Lázaro Cárdenas, Abasolo, Guanajuato." },
+            { src: "{% static 'admin/JuanIrving.jpeg' %}",   icon: "🔬", title: "Área de microscopía", desc: "Microscopios de última generación para análisis hematológicos especializados." },
+            { src: "{% static 'admin/Equipos.jpeg' %}",      icon: "🧬", title: "Equipos de análisis", desc: "Tecnología de vanguardia para resultados precisos en el menor tiempo posible." },
+            { src: "{% static 'admin/Prueba.jpeg' %}",       icon: "🩺", title: "Toma de muestras",    desc: "Área cómoda y segura con personal capacitado y amable." },
+            { src: null, icon: "👨‍⚕️", title: "Nuestro equipo", desc: "Profesionales comprometidos con tu salud, especializados en hematología." }
         ];
 
         function openLightbox(i) {

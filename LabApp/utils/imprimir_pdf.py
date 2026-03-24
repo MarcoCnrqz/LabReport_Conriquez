@@ -143,7 +143,7 @@ def generar_pdf_reporte(detalles):
     if logo_data:
         try:
             img = Image.open(BytesIO(logo_data))
-            c.drawInlineImage(img, MARGEN_IZQ, y - 2.2*cm,
+            c.drawInlineImage(img, MARGEN_IZQ, y - 5*cm,
                               width=3.2*cm, preserveAspectRatio=True)
         except:
             pass
