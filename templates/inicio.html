@@ -27,7 +27,7 @@
             box-shadow: 0 10px 30px rgba(0,0,0,0.08);
             text-align: center;
             width: 90%;
-            max-width: 700px;
+            max-width: 500px;
             margin-bottom: 20px;
             border: 1px solid #d4e9e2;
         }
@@ -599,10 +599,10 @@
            Si src es null se muestra el ícono placeholder en el lightbox.
         ───────────────────────────────────────────────────────────────── */
         var galeriaItems = [
-            { src: null, icon: "&#x1F3E5;", title: "Fachada principal",      desc: "Así nos verás al llegar. Estamos en Av. Lázaro Cárdenas, Abasolo, Guanajuato." },
-            { src: null, icon: "&#x1F52C;", title: "Área de microscopía",    desc: "Microscopios de última generación para análisis hematológicos especializados." },
-            { src: null, icon: "&#x1F9EC;", title: "Equipos de análisis",    desc: "Tecnología de vanguardia para resultados precisos en el menor tiempo posible." },
-            { src: null, icon: "&#x1FA7A;", title: "Toma de muestras",       desc: "Área cómoda y segura con personal capacitado y amable." },
+            { src: "{% static 'admin/Laboratorio.jpeg' %}",  icon: "&#x1F3E5;", title: "Fachada principal",   desc: "Así nos verás al llegar. Estamos en Av. Lázaro Cárdenas, Abasolo, Guanajuato." },
+            { src: "{% static 'admin/JuanIrving.jpeg' %}",   icon: "&#x1F52C;", title: "Área de microscopía", desc: "Microscopios de última generación para análisis hematológicos especializados." },
+            { src: "{% static 'admin/Equipos.jpeg' %}",      icon: "&#x1F9EC;", title: "Equipos de análisis", desc: "Tecnología de vanguardia para resultados precisos en el menor tiempo posible." },
+            { src: "{% static 'admin/Prueba.jpeg' %}",       icon: "&#x1FA7A;", title: "Toma de muestras",    desc: "Área cómoda y segura con personal capacitado y amable." },
             { src: null, icon: "&#x1F468;&#x200D;&#x2695;&#xFE0F;", title: "Nuestro equipo", desc: "Profesionales comprometidos con tu salud, especializados en hematología." }
         ];
 

@@ -115,7 +115,7 @@ def generar_pdf_reporte(detalles):
     FOOTER_TOTAL = 0.5*cm + FIRMA_H + (LINEAS_PIE * ALTO_LINEA) + 0.6*cm
     Y_FOOTER_TOP = FOOTER_TOTAL
 
-    y = height - 1.2 * cm
+    y = height - 2.1 * cm
 
     # =========================================================================
     # TÍTULO: Nombre del laboratorio (centrado, arriba de todo)
