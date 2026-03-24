@@ -6,38 +6,30 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Laboratorio Clínico ICE - Información</title>
     <style>
-        /* Definición de Paleta de Colores
-        -- Primary Blue (Fuerte): #0d47a1
-        -- Accent Blue (Medio): #1976d2
-        -- Light Blue (Fondo): #e3f2fd
-        -- Light Green (Panel Fondo): #f1fff8 
-        -- New Grey (Footer): #eeeeee */
+        * { box-sizing: border-box; margin: 0; padding: 0; }
 
-        /* Estilos Generales */
         body {
-            margin: 0;
             display: flex;
-            flex-direction: column; 
-            justify-content: center;
+            flex-direction: column;
             align-items: center;
             min-height: 100vh;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: #d3dd26; /* Fondo verde brillante original del usuario */
+            background-color: #d3dd26;
             color: #333;
+            padding: 20px 0;
         }
 
-        /* Contenedor tipo Tarjeta - FONDO VERDE CLARO */
+        /* TARJETA PRINCIPAL */
         .card {
-            background: #f1fff8; /* Verde Claro/Menta */
-            padding: 40px;
+            background: #f1fff8;
+            padding: 32px 28px;
             border-radius: 20px;
             box-shadow: 0 10px 30px rgba(0,0,0,0.08);
             text-align: center;
             width: 90%;
             max-width: 500px;
-            margin: 20px 0;
+            margin-bottom: 20px;
             border: 1px solid #d4e9e2;
-            z-index: 1; 
         }
 
         /* LOGO */
@@ -46,20 +38,19 @@
             display: flex;
             justify-content: center;
         }
-
         .logo {
             max-width: 180px;
             height: auto;
             display: block;
         }
 
-        /* Títulos */
+        /* TÍTULOS */
         h1 {
             color: #0d47a1;
             margin-bottom: 5px;
             font-size: 26px;
+            font-weight: 600;
         }
-
         p.subtitle {
             color: #546e7a;
             margin-top: 0;
@@ -68,203 +59,316 @@
             font-weight: 500;
         }
 
-        /* --- SECCIÓN PRINCIPAL (MISION, VISION, VALORES) --- */
-        .section-container {
-            margin-bottom: 25px;
-            text-align: left;
-        }
-
+        /* TÍTULOS DE SECCIÓN */
         .section-title {
-            font-size: 18px;
-            color: #1976d2;
-            border-bottom: 2px solid #e3f2fd;
-            padding-bottom: 5px;
-            margin-bottom: 15px;
-            font-weight: bold;
-        }
-        
-        /* Contenedor de Mision y Vision */
-        .mv-box {
-            background-color: #ffffff; 
-            border-radius: 12px;
-            border: 1px solid #bbdefb;
-            padding: 18px;
-            margin-bottom: 20px;
-            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
-        }
-        
-        .mv-item h3 {
+            font-size: 14px;
+            font-weight: 600;
             color: #0d47a1;
-            font-size: 16px;
-            margin: 0 0 5px 0;
+            margin-bottom: 12px;
             display: flex;
             align-items: center;
+            gap: 6px;
+            text-align: left;
         }
 
-        .mv-item p {
-            color: #455a64;
+        /* ACORDEÓN */
+        .accordion {
+            border: 1px solid #bbdefb;
+            border-radius: 12px;
+            overflow: hidden;
+            margin-bottom: 20px;
+            text-align: left;
+        }
+        .acc-tab {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 16px;
+            background: #e3f2fd;
+            cursor: pointer;
+            user-select: none;
+            transition: background 0.2s;
+        }
+        .acc-tab:hover { background: #bbdefb; }
+        .acc-tab-label {
             font-size: 14px;
-            line-height: 1.5;
-            padding-left: 20px; /* Indentación para la descripción */
-            margin-bottom: 15px;
+            font-weight: 600;
+            color: #0d47a1;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .acc-arrow {
+            font-size: 12px;
+            color: #1976d2;
+            transition: transform 0.25s;
+        }
+        .acc-body {
+            background: #fff;
+            overflow: hidden;
+            max-height: 0;
+            transition: max-height 0.35s ease, padding 0.25s;
+        }
+        .acc-body.open {
+            max-height: 600px;
+            padding: 16px;
+        }
+        .acc-body p {
+            font-size: 13px;
+            color: #455a64;
+            line-height: 1.6;
             font-style: italic;
         }
-        
-        /* Iconos MV */
-        .mv-item h3::before {
-            content: '\2605'; /* Estrella sólida compatible */
-            margin-right: 8px;
-            font-size: 18px;
-            color: #1976d2;
+        .acc-separator { height: 1px; background: #bbdefb; }
+        .mv-label {
+            font-size: 13px;
+            font-weight: 600;
+            color: #0d47a1;
+            display: block;
+            margin-bottom: 6px;
         }
-        
-        /* Lista de Principios Fundamentales (Valores) */
-        .principles-list {
-            list-style: none;
-            padding: 0;
-        }
+        .mv-divider { height: 1px; background: #e3f2fd; margin: 12px 0; }
 
-        .principles-list li {
-            background-color: #e3f2fd; /* Azul muy claro */
-            color: #1565c0;
-            padding: 10px;
-            border-radius: 8px;
+        /* VALORES */
+        .values-list { list-style: none; margin-bottom: 0; }
+        .values-list li {
+            background: #e3f2fd;
+            border-left: 4px solid #1976d2;
+            border-radius: 0 8px 8px 0;
+            padding: 10px 12px;
             margin-bottom: 8px;
-            font-size: 14px;
-            border-left: 4px solid #1976d2; /* Barra azul para destacar */
+            font-size: 13px;
+            color: #1565c0;
             line-height: 1.4;
         }
-        
-        .principles-list li strong {
+        .values-list li:last-child { margin-bottom: 0; }
+        .values-list li strong {
             display: block;
             color: #0d47a1;
-            margin-bottom: 3px;
+            margin-bottom: 2px;
         }
 
-
-        /* Sección de Servicios y Análisis */
-        .services-section {
+        /* SERVICIOS */
+        .services-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-bottom: 20px;
             text-align: left;
-            margin-bottom: 25px;
+        }
+        .service-item {
+            background: #e3f2fd;
+            border-radius: 8px;
+            padding: 8px 10px;
+            font-size: 13px;
+            color: #1565c0;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .service-item::before {
+            content: "";
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: #1976d2;
+            flex-shrink: 0;
         }
 
-        .analysis-list {
-            list-style: none;
-            padding: 0;
+        /* GALERÍA */
+        .gallery-section { margin-bottom: 20px; text-align: left; }
+        .gallery-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 10px;
         }
+        .gallery-item {
+            position: relative;
+            border-radius: 12px;
+            overflow: hidden;
+            border: 2px solid #bbdefb;
+            cursor: pointer;
+            transition: border-color 0.2s, transform 0.2s;
+            background: #e3f2fd;
+            aspect-ratio: 4/3;
+        }
+        .gallery-item:hover {
+            border-color: #1976d2;
+            transform: scale(1.02);
+        }
+        .gallery-item img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+        .gallery-placeholder {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            background: #e3f2fd;
+        }
+        .gallery-placeholder span { font-size: 28px; }
+        .gallery-placeholder p {
+            font-size: 11px;
+            color: #1976d2;
+            font-weight: 600;
+            text-align: center;
+            padding: 0 8px;
+            font-style: normal;
+        }
+        .gallery-item-wide {
+            grid-column: span 2;
+            aspect-ratio: 16/7;
+        }
 
-        /* Análisis (Mantiene el azul claro) */
-        .analysis-list li {
-            background-color: #e3f2fd; /* Azul muy claro */
-            color: #1565c0;
-            padding: 8px 10px;
-            border-radius: 8px;
-            font-size: 13px;
+        /* LIGHTBOX */
+        .lightbox {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.75);
+            z-index: 100;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .lightbox.active { display: flex; }
+        .lightbox-inner {
+            background: #f1fff8;
+            border-radius: 16px;
+            overflow: hidden;
+            max-width: 460px;
+            width: 100%;
+            border: 2px solid #1976d2;
+        }
+        .lightbox-img {
+            width: 100%;
+            aspect-ratio: 16/9;
+            object-fit: cover;
+            display: block;
+        }
+        .lightbox-img-placeholder {
+            width: 100%;
+            aspect-ratio: 16/9;
+            background: #e3f2fd;
             display: flex;
             align-items: center;
+            justify-content: center;
+            font-size: 52px;
         }
-
-        .analysis-list li::before {
-            content: "\2022"; /* Entidad HTML para punto (bullet) */
+        .lightbox-body { padding: 14px 16px; }
+        .lightbox-title {
+            font-size: 15px;
+            font-weight: 600;
+            color: #0d47a1;
+            margin-bottom: 4px;
+        }
+        .lightbox-desc {
+            font-size: 13px;
+            color: #546e7a;
+            line-height: 1.5;
+        }
+        .lightbox-close {
+            display: block;
+            margin-top: 12px;
+            text-align: center;
+            padding: 8px;
+            background: #e3f2fd;
+            border-radius: 8px;
+            font-size: 13px;
             color: #1976d2;
-            font-weight: bold;
-            display: inline-block;
-            width: 1em;
-            margin-right: 5px;
+            font-weight: 600;
+            cursor: pointer;
+            border: none;
+            width: 100%;
+            transition: background 0.2s;
         }
+        .lightbox-close:hover { background: #bbdefb; }
 
-        /* Sección de Info (Ubicación y Horario) */
-        .info-box {
-            background-color: #fafafa;
-            border: 1px solid #eee;
+        /* UBICACIÓN */
+        .location-box {
+            background: #ffffff;
+            border: 2px solid #1976d2;
             border-radius: 12px;
-            padding: 15px;
-            margin-bottom: 15px;
+            padding: 14px;
+            margin-bottom: 12px;
+            transition: border-color 0.3s, box-shadow 0.3s;
             text-align: left;
         }
-        
-        /* Ubicación - Nuevo Estilo */
-        .location-box {
-            background-color: #ffffff; /* Fondo blanco */
-            border: 2px solid #1976d2; /* Borde azul medio */
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-            transition: all 0.3s ease;
-        }
-
         .location-box:hover {
             border-color: #0d47a1;
-            box-shadow: 0 6px 15px rgba(0, 0, 0, 0.15);
+            box-shadow: 0 6px 15px rgba(0,0,0,0.15);
         }
-
         .location-link {
             text-decoration: none;
             color: #1565c0;
-            font-weight: bold;
             display: flex;
-            align-items: center;
+            align-items: flex-start;
+            gap: 10px;
         }
-        
-        .location-link:hover {
+        .location-icon { font-size: 24px; line-height: 1; }
+        .location-text strong {
+            display: block;
+            font-size: 13px;
             color: #0d47a1;
         }
-
-        .location-text {
-            line-height: 1.5;
-            margin-left: 10px;
-        }
-
-        .location-icon {
-            font-size: 24px;
-            color: #1976d2;
-            margin-right: 5px;
-        }
-
-        /* HORARIOS DE ATENCIÓN - AHORA AZUL CLARO */
-        .hours-box {
-             background-color: #e3f2fd; 
-             border-color: #bbdefb;
-        }
-        
-        .hours-title {
-            color: #0d47a1 !important; 
-        }
-        /* Fin Horarios */
-
-        .info-item {
-            display: flex;
-            margin-bottom: 10px;
-            align-items: flex-start;
-        }
-
-        .info-text strong {
-            display: block;
-            color: #37474f;
-            font-size: 14px;
-        }
-
-        .info-text span {
+        .location-text span {
+            font-size: 12px;
             color: #607d8b;
-            font-size: 13px;
             display: block;
             line-height: 1.4;
         }
+        .maps-hint {
+            color: #1976d2;
+            font-size: 12px;
+            margin-top: 4px;
+            display: block;
+        }
 
-        /* REDES SOCIALES - BOTONES AZUL CLARO */
+        /* HORARIOS */
+        .hours-box {
+            background: #e3f2fd;
+            border: 1px solid #bbdefb;
+            border-radius: 12px;
+            padding: 14px;
+            margin-bottom: 20px;
+            text-align: left;
+        }
+        .hours-row {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        .hours-row:last-child { margin-bottom: 0; }
+        .hours-icon { font-size: 18px; line-height: 1.2; }
+        .hours-text strong {
+            display: block;
+            font-size: 13px;
+            color: #0d47a1;
+        }
+        .hours-text span {
+            font-size: 12px;
+            color: #546e7a;
+            display: block;
+        }
+
+        /* REDES SOCIALES */
         .social-section {
             margin-top: 25px;
-            border-top: 1px solid #d4e9e2; 
+            border-top: 1px solid #d4e9e2;
             padding-top: 20px;
         }
-        
         .social-links {
             display: flex;
             justify-content: center;
             gap: 20px;
         }
-
         .social-btn {
             display: flex;
             justify-content: center;
@@ -272,53 +376,46 @@
             width: 55px;
             height: 55px;
             border-radius: 50%;
-            background-color: #e3f2fd; /* Fondo Azul Claro */
+            background-color: #e3f2fd;
             text-decoration: none;
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
             transition: all 0.3s ease;
         }
-        
-        .social-btn img {
-            width: 30px; 
-            height: 30px;
-        }
-
-
+        .social-btn img { width: 30px; height: 30px; }
         .social-btn:hover {
             transform: translateY(-3px) scale(1.05);
-            background-color: #bbdefb; /* Azul un poco más oscuro al pasar el mouse */
+            background-color: #bbdefb;
         }
-        
-        /* FOOTER COMPLETO */
+
+        /* FOOTER */
         .full-width-footer {
             width: 100%;
-            background-color: #eeeeee; /* Gris claro */
+            background-color: #eeeeee;
             padding: 20px 0;
-            margin-top: auto; 
+            margin-top: auto;
             text-align: center;
             color: #546e7a;
             font-size: 13px;
             font-weight: 500;
             border-top: 1px solid #e0e0e0;
         }
-
         .footer-content {
             max-width: 500px;
             margin: 0 auto;
             padding: 0 20px;
         }
-
         .footer-content strong {
             color: #37474f;
             display: block;
             margin-top: 5px;
         }
-
     </style>
 </head>
 <body>
 
     <div class="card">
+
+        <!-- LOGO -->
         <div class="login-logo">
             <img src="{% static 'admin/LogoICE.png' %}" alt="Logo Laboratorio ICE" class="logo">
         </div>
@@ -326,116 +423,229 @@
         <h1>Laboratorio Clínico ICE</h1>
         <p class="subtitle">Especialistas en Hematología y Análisis Clínicos</p>
 
-        <div class="section-container">
-            <div class="section-title" style="color:#0d47a1; border-bottom:none; margin-bottom: 15px;">&#x1F4CD; Nuestra Identidad</div>
-            
-            <div class="mv-box">
-                <div class="mv-item">
-                    <h3>Misi&#xF3;n</h3>
-                    <p>Brindamos servicios de an&#xE1;lisis cl&#xED;nicos de la m&#xE1;s alta calidad, comprometidos con la precisi&#xF3;n diagn&#xF3;stica, la cordialidad y el respeto hacia nuestros pacientes y colaboradores. Somos especialistas en enfermedades de la sangre, con enfoque en casos raros y de dif&#xED;cil interpretaci&#xF3;n, ofreciendo resultados confiables que apoyan un diagn&#xF3;stico oportuno.</p>
+        <!-- ACORDEÓN: IDENTIDAD -->
+        <div class="section-title">&#x1F4CD; Nuestra Identidad</div>
+        <div class="accordion">
+
+            <div class="acc-tab" onclick="toggle('mv')">
+                <span class="acc-tab-label"><span>&#x1F3AF;</span> Misión y Visión</span>
+                <span class="acc-arrow" id="arr-mv">▼</span>
+            </div>
+            <div class="acc-body" id="mv">
+                <span class="mv-label">&#x1F3AF; Misión</span>
+                <p>Brindamos servicios de an&#xE1;lisis cl&#xED;nicos de la m&#xE1;s alta calidad, comprometidos con la precisi&#xF3;n diagn&#xF3;stica, la cordialidad y el respeto hacia nuestros pacientes y colaboradores. Somos especialistas en enfermedades de la sangre, con enfoque en casos raros y de dif&#xED;cil interpretaci&#xF3;n, ofreciendo resultados confiables que apoyan un diagn&#xF3;stico oportuno.</p>
+                <div class="mv-divider"></div>
+                <span class="mv-label">&#x1F52D; Visión</span>
+                <p>Ser el laboratorio cl&#xED;nico l&#xED;der de la regi&#xF3;n, reconocido por nuestra honestidad, excelencia y trato amable. Aspiramos a ser la primera opci&#xF3;n para pacientes y profesionales de la salud, brindando confianza, bienestar y diagn&#xF3;sticos especializados que marcan la diferencia.</p>
+            </div>
+
+            <div class="acc-separator"></div>
+
+            <div class="acc-tab" onclick="toggle('vals')">
+                <span class="acc-tab-label"><span>&#x2728;</span> Principios Fundamentales</span>
+                <span class="acc-arrow" id="arr-vals">▼</span>
+            </div>
+            <div class="acc-body" id="vals">
+                <ul class="values-list">
+                    <li>
+                        <strong>1. Trato Humano y Profesional</strong>
+                        Brindamos atenci&#xF3;n c&#xE1;lida, respetuosa y emp&#xE1;tica a nuestros pacientes, m&#xE9;dicos y colaboradores.
+                    </li>
+                    <li>
+                        <strong>2. Precisi&#xF3;n y Excelencia Diagn&#xF3;stica</strong>
+                        Realizamos cada an&#xE1;lisis con rigor, exactitud y responsabilidad, garantizando resultados confiables.
+                    </li>
+                    <li>
+                        <strong>3. Innovaci&#xF3;n Tecnol&#xF3;gica</strong>
+                        Incorporamos tecnolog&#xED;a de vanguardia y m&#xE9;todos actualizados que elevan la calidad diagn&#xF3;stica.
+                    </li>
+                    <li>
+                        <strong>4. Desarrollo y Capacitaci&#xF3;n Continua</strong>
+                        Impulsamos la formaci&#xF3;n constante de nuestro equipo para brindar un servicio cada vez mejor.
+                    </li>
+                    <li>
+                        <strong>5. Trabajo en Equipo y Respeto Mutuo</strong>
+                        Fomentamos la colaboraci&#xF3;n y comunicaci&#xF3;n abierta entre todos para resultados extraordinarios.
+                    </li>
+                </ul>
+            </div>
+
+        </div>
+
+        <!-- SERVICIOS -->
+        <div class="section-title">&#x1F9EA; Nuestros An&#xE1;lisis y Servicios</div>
+        <div class="services-grid">
+            <div class="service-item">Qu&#xED;mica Sangu&#xED;nea</div>
+            <div class="service-item">Examen General de Orina</div>
+            <div class="service-item">Perfil de L&#xED;pidos</div>
+            <div class="service-item">Ant&#xED;geno Prost&#xE1;tico</div>
+            <div class="service-item">Ex&#xE1;menes Ginecol&#xF3;gicos</div>
+            <div class="service-item">Especialista en Hematolog&#xED;a</div>
+        </div>
+
+        <!-- GALERÍA -->
+        <div class="gallery-section">
+            <div class="section-title">&#x1F4F8; Nuestro Laboratorio</div>
+            <div class="gallery-grid">
+
+                <!-- Imagen principal (ancha) — reemplaza el div.gallery-placeholder por <img src="..." alt="..."> -->
+                <div class="gallery-item gallery-item-wide" onclick="openLightbox(0)">
+                    <div class="gallery-placeholder">
+                        <span>&#x1F3E5;</span>
+                        <p>Foto principal / fachada</p>
+                    </div>
                 </div>
-                <div class="mv-item">
-                    <h3>Visi&#xF3;n</h3>
-                    <p>Ser el laboratorio cl&#xED;nico l&#xED;der de la regi&#xF3;n, reconocido por nuestra honestidad, excelencia y trato amable. Aspiramos a ser la primera opci&#xF3;n para pacientes y profesionales de la salud, brindando confianza, bienestar y diagn&#xF3;sticos especializados que marcan la diferencia.</p>
+
+                <!-- Imagen 2 -->
+                <div class="gallery-item" onclick="openLightbox(1)">
+                    <div class="gallery-placeholder">
+                        <span>&#x1F52C;</span>
+                        <p>Área de microscopía</p>
+                    </div>
                 </div>
+
+                <!-- Imagen 3 -->
+                <div class="gallery-item" onclick="openLightbox(2)">
+                    <div class="gallery-placeholder">
+                        <span>&#x1F9EC;</span>
+                        <p>Equipos de análisis</p>
+                    </div>
+                </div>
+
+                <!-- Imagen 4 -->
+                <div class="gallery-item" onclick="openLightbox(3)">
+                    <div class="gallery-placeholder">
+                        <span>&#x1FA7A;</span>
+                        <p>Toma de muestras</p>
+                    </div>
+                </div>
+
+                <!-- Imagen 5 -->
+                <div class="gallery-item" onclick="openLightbox(4)">
+                    <div class="gallery-placeholder">
+                        <span>&#x1F468;&#x200D;&#x2695;&#xFE0F;</span>
+                        <p>Nuestro equipo</p>
+                    </div>
+                </div>
+
             </div>
         </div>
 
-        <div class="section-container">
-            <div class="section-title">&#x2728; Principios Fundamentales (Nuestros Valores)</div>
-            
-            <ul class="principles-list">
-                <li>
-                    <strong>1. Trato Humano y Profesional</strong>
-                    Brindamos atenci&#xF3;n c&#xE1;lida, respetuosa y emp&#xE1;tica a nuestros pacientes, m&#xE9;dicos y colaboradores. Creemos en la amabilidad como parte fundamental del servicio y en el profesionalismo como base de la confianza.
-                </li>
-                <li>
-                    <strong>2. Precisi&#xF3;n y Excelencia Diagn&#xF3;stica</strong>
-                    Realizamos cada an&#xE1;lisis con rigor, exactitud y responsabilidad, garantizando resultados confiables que apoyan diagn&#xF3;sticos oportunos y de alto impacto cl&#xED;nico.
-                </li>
-                <li>
-                    <strong>3. Innovaci&#xF3;n Tecnol&#xF3;gica</strong>
-                    Incorporamos tecnolog&#xED;a de vanguardia y m&#xE9;todos actualizados que elevan la calidad, eficiencia y capacidad diagn&#xF3;stica de nuestros servicios.
-                </li>
-                <li>
-                    <strong>4. Desarrollo y Capacitaci&#xF3;n Continua</strong>
-                    Impulsamos la formaci&#xF3;n constante de nuestro equipo, fomentando el crecimiento profesional, la especializaci&#xF3;n y la actualizaci&#xF3;n cient&#xED;fica para brindar un servicio cada vez mejor.
-                </li>
-                <li>
-                    <strong>5. Trabajo en Equipo y Respeto Mutuo</strong>
-                    Fomentamos la colaboraci&#xF3;n, la comunicaci&#xF3;n abierta y el respeto entre todos. Sabemos que un equipo unido, valorado y escuchado genera resultados extraordinarios para nuestros pacientes y nuestra comunidad m&#xE9;dica.
-                </li>
-            </ul>
-        </div>
-        
-        <div class="services-section">
-            <div class="section-title">&#x1F9EA; Nuestros An&#xE1;lisis y Servicios</div>
-            <ul class="analysis-list">
-                <li>Qu&#xED;mica Sangu&#xED;nea</li>
-                <li>Examen General de Orina</li>
-                <li>Perfil de L&#xED;pidos</li>
-                <li>Ant&#xED;geno Prost&#xE1;tico</li>
-                <li>Ex&#xE1;menes Ginecol&#xF3;gicos</li>
-                <li>Especialista en Hematolog&#xED;a</li>
-            </ul>
-        </div>
-
-        <div class="info-box location-box">
+        <!-- UBICACIÓN -->
+        <div class="location-box">
             <div class="section-title" style="border:none; margin-bottom:10px; padding:0;">&#x1F4CD; Ubicaci&#xF3;n Principal</div>
-            
             <a href="https://maps.app.goo.gl/fmkPhrRPGBrPgQ6d7" target="_blank" class="location-link">
-                <span class="location-icon">&#x1F5FA;</span> <div class="location-text">
+                <span class="location-icon">&#x1F5FA;</span>
+                <div class="location-text">
                     <strong>El Varal, Av. L&#xE1;zaro C&#xE1;rdenas, Benito Ju&#xE1;rez esquina</strong>
                     <span>36970 Abasolo, Guanajuato</span>
-                    <span>(Haga clic para ver en Google Maps)</span>
+                    <span class="maps-hint">Abrir en Google Maps &#x2192;</span>
                 </div>
             </a>
         </div>
 
-        <div class="info-box hours-box">
-            <div class="section-title hours-title" style="border:none; margin-bottom:10px; padding:0;">&#x23F0; Horarios de Atenci&#xF3;n</div>
-            
-            <div class="info-item">
-                <span class="info-icon" style="font-size: 20px;">&#x1F4C5;</span> <div class="info-text">
+        <!-- HORARIOS -->
+        <div class="hours-box">
+            <div class="section-title" style="border:none; margin-bottom:12px; padding:0; color:#0d47a1;">&#x23F0; Horarios de Atenci&#xF3;n</div>
+            <div class="hours-row">
+                <span class="hours-icon">&#x1F4C5;</span>
+                <div class="hours-text">
                     <strong>Lunes a Viernes</strong>
-                    <span>7:30 AM - 2:00 PM</span>
-                    <span>4:30 PM - 7:00 PM</span>
+                    <span>7:30 AM - 2:00 PM &nbsp;|&nbsp; 4:30 PM - 7:00 PM</span>
                 </div>
             </div>
-
-            <div class="info-item">
-                <span class="info-icon" style="font-size: 20px;">&#x2600;</span> <div class="info-text">
+            <div class="hours-row">
+                <span class="hours-icon">&#x2600;</span>
+                <div class="hours-text">
                     <strong>S&#xE1;bados</strong>
                     <span>7:30 AM - 2:00 PM</span>
                 </div>
             </div>
-             <div class="info-item">
-                <span class="info-icon" style="font-size: 20px;">&#x2600;</span> <div class="info-text">
+            <div class="hours-row">
+                <span class="hours-icon">&#x2600;</span>
+                <div class="hours-text">
                     <strong>Domingos</strong>
                     <span>8:00 AM - 1:00 PM</span>
                 </div>
             </div>
         </div>
 
+        <!-- REDES SOCIALES -->
         <div class="social-section">
             <div class="social-links">
                 <a href="https://www.facebook.com/share/1AiAQF9zzK/" target="_blank" class="social-btn" title="Facebook">
-                    <img src="{% static 'admin/facebook.png' %}" alt="Logo Facebook"> 
+                    <img src="{% static 'admin/facebook.png' %}" alt="Logo Facebook">
                 </a>
-                
                 <a href="https://api.whatsapp.com/send?phone=%2B524696219290&fbclid=IwVERDUAOccapleHRuA2FlbQIxMABzcnRjBmFwcF9pZAwzNTA2ODU1MzE3MjgAAR7s1y2S9MkdthSSzyBUeD_DR6Y7B-E6ws8QLgsHqHmvxiQT_KdJoBHIf2ST5A_aem_QFHr6PDnZ12ufq3uQRkraQ" target="_blank" class="social-btn" title="WhatsApp">
                     <img src="{% static 'admin/whatsapp.png' %}" alt="Logo WhatsApp">
                 </a>
             </div>
         </div>
+
     </div>
-    
+
+    <!-- FOOTER -->
     <div class="full-width-footer">
         <div class="footer-content">
-            www.icelaboratorio.com 2025
+            www.icelaboratorio.com 2026
             <strong>Realiza tus an&#xE1;lisis, solicita una cita.</strong>
         </div>
     </div>
+
+    <!-- LIGHTBOX -->
+    <div class="lightbox" id="lightbox" onclick="closeLightbox(event)">
+        <div class="lightbox-inner">
+            <div id="lb-media"></div>
+            <div class="lightbox-body">
+                <div class="lightbox-title" id="lb-title"></div>
+                <div class="lightbox-desc" id="lb-desc"></div>
+                <button class="lightbox-close" onclick="closeLightbox()">Cerrar</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        /* ── Datos de la galería ──────────────────────────────────────────
+           Para agregar imágenes reales, cambia "src" de null a la ruta:
+           src: "{% static 'admin/fachada.jpg' %}"
+           Si src es null se muestra el ícono placeholder en el lightbox.
+        ───────────────────────────────────────────────────────────────── */
+       var galeriaItems = [
+        { src: "{% static 'admin/Laboratorio.jpeg' %}", icon: "&#x1F3E5;", title: "Fachada principal",      desc: "Así nos verás al llegar. Estamos en Av. Lázaro Cárdenas, Abasolo, Guanajuato." },
+        { src: "{% static 'admin/JuanIrving.jpeg' %}", icon: "&#x1F52C;", title: "Área de microscopía",    desc: "Microscopios de última generación para análisis hematológicos especializados." },
+        { src: "{% static 'admin/Equipos.jpeg' %}", icon: "&#x1F9EC;", title: "Equipos de análisis",    desc: "Tecnología de vanguardia para resultados precisos en el menor tiempo posible." },
+        { src: "{% static 'admin/Prueba.jpeg' %}", icon: "&#x1FA7A;", title: "Toma de muestras",       desc: "Área cómoda y segura con personal capacitado y amable." },
+        { src: null, icon: "&#x1F468;&#x200D;&#x2695;&#xFE0F;", title: "Nuestro equipo", desc: "Profesionales comprometidos con tu salud, especializados en hematología." }
+    ];
+
+
+        function openLightbox(i) {
+            var item = galeriaItems[i];
+            var mediaEl = document.getElementById('lb-media');
+            if (item.src) {
+                mediaEl.innerHTML = '<img class="lightbox-img" src="' + item.src + '" alt="' + item.title + '">';
+            } else {
+                mediaEl.innerHTML = '<div class="lightbox-img-placeholder">' + item.icon + '</div>';
+            }
+            document.getElementById('lb-title').textContent = item.title;
+            document.getElementById('lb-desc').textContent  = item.desc;
+            document.getElementById('lightbox').classList.add('active');
+        }
+
+        function closeLightbox(e) {
+            if (!e || e.target === document.getElementById('lightbox') || e.target.classList.contains('lightbox-close')) {
+                document.getElementById('lightbox').classList.remove('active');
+            }
+        }
+
+        function toggle(id) {
+            var body = document.getElementById(id);
+            var arr  = document.getElementById('arr-' + id);
+            var isOpen = body.classList.contains('open');
+            body.classList.toggle('open', !isOpen);
+            arr.style.transform = isOpen ? 'rotate(0deg)' : 'rotate(180deg)';
+        }
+    </script>
 
 </body>
 </html>

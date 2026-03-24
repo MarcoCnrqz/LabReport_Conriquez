@@ -28,9 +28,9 @@ def registrar_fuentes():
             try:
                 pdfmetrics.registerFont(TTFont(nombre, ruta_font))
             except Exception as e:
-                print(f"⚠️ Error al registrar {nombre}: {e}")
+                print(f"Error al registrar {nombre}: {e}")
         else:
-            print(f"⚠️ Fuente {archivo} no encontrada. Se usará Helvetica.")
+            print(f" Fuente {archivo} no encontrada. Se usará Helvetica.")
 
 registrar_fuentes()
 

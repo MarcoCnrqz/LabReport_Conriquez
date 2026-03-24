@@ -1,3 +1,5 @@
+import requests as http_requests
+
 from rest_framework import viewsets, status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
@@ -15,6 +17,35 @@ from .serializers import (
     IntervaloReferenciaSerializer, UsuarioSerializer
 )
 from .utils.imprimir_pdf import generar_pdf_reporte
+
+
+# ======================================================
+# 🔹 HELPER: Descarga imagen desde URL (Cloudinary)
+# ======================================================
+
+def _descargar_imagen_bytes(field):
+    """
+    Descarga los bytes de un ImageField que apunta a Cloudinary (o cualquier
+    storage remoto).  Devuelve bytes o None si falla.
+
+    ¿Por qué no usar field.open("rb")?
+    Con Django FileSystemStorage (local) .open() funciona perfectamente.
+    Con Cloudinary, el archivo vive en sus servidores — .open() intenta
+    acceder al nombre del archivo en el disco local de Render, que no existe,
+    y falla silenciosamente dejando None.  La solución correcta es obtener
+    la URL pública que Cloudinary siempre expone y descargarla via HTTP.
+    """
+    if not field:
+        return None
+    try:
+        url = field.url          # Cloudinary devuelve la URL pública completa
+        resp = http_requests.get(url, timeout=10)
+        resp.raise_for_status()  # lanza excepción si status != 2xx
+        return resp.content
+    except Exception as e:
+        print(f"⚠️  Error descargando imagen desde {getattr(field, 'name', '?')}: {e}")
+        return None
+
 
 # ======================================================
 # 🔹 API VIEWSETS
@@ -48,6 +79,7 @@ class UsuarioViewSet(viewsets.ModelViewSet):
     queryset = Usuario.objects.all()
     serializer_class = UsuarioSerializer
 
+
 # ======================================================
 # 🔹 VISTAS GENERALES
 # ======================================================
@@ -68,6 +100,7 @@ def logout_fix(request):
     logout(request)
     return render(request, 'admin/login.html', {})
 
+
 # ======================================================
 # 🔹 PDF — FUNCIÓN AUXILIAR
 # ======================================================
@@ -76,49 +109,36 @@ def _construir_detalles_analisis(analisis):
     """
     Extrae todos los datos del análisis y los convierte en el
     diccionario que espera generar_pdf_reporte.
+
+    NOTA SOBRE IMÁGENES:
+    Todas las imágenes (logo, firma, imágenes de resultado) se descargan
+    usando _descargar_imagen_bytes(), que obtiene la URL pública de
+    Cloudinary y la descarga via HTTP.  Esto reemplaza el patrón anterior
+    de field.open("rb"), que sólo funciona con almacenamiento local.
     """
     paciente    = analisis.paciente
     laboratorio = paciente.laboratorio if hasattr(paciente, 'laboratorio') else None
     quimico     = analisis.creado_por
 
     # --- Logo del laboratorio ---
-    logo_bytes = None
-    if laboratorio and laboratorio.logo:
-        try:
-            with laboratorio.logo.open("rb") as f:
-                logo_bytes = f.read()
-        except Exception:
-            logo_bytes = None
+    # ✅ Corregido: usa _descargar_imagen_bytes en vez de laboratorio.logo.open("rb")
+    logo_bytes = _descargar_imagen_bytes(laboratorio.logo if laboratorio else None)
 
     # --- Firma digital del químico ---
-    firma_bytes = None
-    if quimico and quimico.firma_digital:
-        try:
-            with quimico.firma_digital.open("rb") as f:
-                firma_bytes = f.read()
-        except Exception:
-            firma_bytes = None
+    # ✅ Corregido: mismo patrón — descarga desde Cloudinary
+    firma_bytes = _descargar_imagen_bytes(quimico.firma_digital if quimico else None)
 
     # --- Imágenes del análisis (solo para IMAGENES_RESULTADOS) ---
+    # ✅ Corregido: mismo patrón
     imagen_bytes1 = None
     imagen_bytes2 = None
     if analisis.plantilla and analisis.plantilla.tipo_formato == 'IMAGENES_RESULTADOS':
-        if analisis.imagen_resultado1:
-            try:
-                with analisis.imagen_resultado1.open("rb") as f:
-                    imagen_bytes1 = f.read()
-            except Exception:
-                imagen_bytes1 = None
-        if analisis.imagen_resultado2:
-            try:
-                with analisis.imagen_resultado2.open("rb") as f:
-                    imagen_bytes2 = f.read()
-            except Exception:
-                imagen_bytes2 = None
+        imagen_bytes1 = _descargar_imagen_bytes(analisis.imagen_resultado1)
+        imagen_bytes2 = _descargar_imagen_bytes(analisis.imagen_resultado2)
 
     # --- Resultados con intervalos de referencia por edad y sexo ---
-    resultados  = []
-    edad_meses  = paciente.edad_en_meses
+    resultados = []
+    edad_meses = paciente.edad_en_meses
 
     for res in analisis.resultados.all():
         valor_min = None
@@ -166,13 +186,14 @@ def _construir_detalles_analisis(analisis):
         "resultados":             resultados,
 
         # Laboratorio
+        "laboratorio_nombre":     laboratorio.nombre_laboratorio if laboratorio else "",
         "laboratorio_logo":       logo_bytes,
 
         # Imágenes (formato especial)
         "imagen_blob1":           imagen_bytes1,
         "imagen_blob2":           imagen_bytes2,
 
-        # Químico / Responsable sanitario — TODOS los campos
+        # Químico / Responsable sanitario — todos los campos
         "usuario_generador":           quimico.nombre               if quimico else "",
         "quimico_puesto":              quimico.puesto               if quimico else "",
         "quimico_titulo":              quimico.titulo_abreviado      if quimico else "",
