@@ -27,7 +27,7 @@
             box-shadow: 0 10px 30px rgba(0,0,0,0.08);
             text-align: center;
             width: 90%;
-            max-width: 500px;
+            max-width: 700px;
             margin-bottom: 20px;
             border: 1px solid #d4e9e2;
         }
@@ -488,39 +488,27 @@
             <div class="section-title">&#x1F4F8; Nuestro Laboratorio</div>
             <div class="gallery-grid">
 
-                <!-- Imagen principal (ancha) — reemplaza el div.gallery-placeholder por <img src="..." alt="..."> -->
+                <!-- Imagen 1 (ancha) -->
                 <div class="gallery-item gallery-item-wide" onclick="openLightbox(0)">
-                    <div class="gallery-placeholder">
-                        <span>&#x1F3E5;</span>
-                        <p>Foto principal / fachada</p>
-                    </div>
+                    <img src="{% static 'admin/Laboratorio.jpeg' %}" alt="Fachada principal">
                 </div>
 
                 <!-- Imagen 2 -->
                 <div class="gallery-item" onclick="openLightbox(1)">
-                    <div class="gallery-placeholder">
-                        <span>&#x1F52C;</span>
-                        <p>Área de microscopía</p>
-                    </div>
+                    <img src="{% static 'admin/JuanIrving.jpeg' %}" alt="Área de microscopía">
                 </div>
 
                 <!-- Imagen 3 -->
                 <div class="gallery-item" onclick="openLightbox(2)">
-                    <div class="gallery-placeholder">
-                        <span>&#x1F9EC;</span>
-                        <p>Equipos de análisis</p>
-                    </div>
+                    <img src="{% static 'admin/Equipos.jpeg' %}" alt="Equipos de análisis">
                 </div>
 
                 <!-- Imagen 4 -->
                 <div class="gallery-item" onclick="openLightbox(3)">
-                    <div class="gallery-placeholder">
-                        <span>&#x1FA7A;</span>
-                        <p>Toma de muestras</p>
-                    </div>
+                    <img src="{% static 'admin/Prueba.jpeg' %}" alt="Toma de muestras">
                 </div>
 
-                <!-- Imagen 5 -->
+                <!-- Imagen 5 (sin imagen aún) -->
                 <div class="gallery-item" onclick="openLightbox(4)">
                     <div class="gallery-placeholder">
                         <span>&#x1F468;&#x200D;&#x2695;&#xFE0F;</span>
@@ -587,7 +575,7 @@
     <!-- FOOTER -->
     <div class="full-width-footer">
         <div class="footer-content">
-            www.icelaboratorio.com 2026
+            www.icelaboratorio.com 2025
             <strong>Realiza tus an&#xE1;lisis, solicita una cita.</strong>
         </div>
     </div>
@@ -610,14 +598,13 @@
            src: "{% static 'admin/fachada.jpg' %}"
            Si src es null se muestra el ícono placeholder en el lightbox.
         ───────────────────────────────────────────────────────────────── */
-       var galeriaItems = [
-        { src: "{% static 'admin/Laboratorio.jpeg' %}", icon: "&#x1F3E5;", title: "Fachada principal",      desc: "Así nos verás al llegar. Estamos en Av. Lázaro Cárdenas, Abasolo, Guanajuato." },
-        { src: "{% static 'admin/JuanIrving.jpeg' %}", icon: "&#x1F52C;", title: "Área de microscopía",    desc: "Microscopios de última generación para análisis hematológicos especializados." },
-        { src: "{% static 'admin/Equipos.jpeg' %}", icon: "&#x1F9EC;", title: "Equipos de análisis",    desc: "Tecnología de vanguardia para resultados precisos en el menor tiempo posible." },
-        { src: "{% static 'admin/Prueba.jpeg' %}", icon: "&#x1FA7A;", title: "Toma de muestras",       desc: "Área cómoda y segura con personal capacitado y amable." },
-        { src: null, icon: "&#x1F468;&#x200D;&#x2695;&#xFE0F;", title: "Nuestro equipo", desc: "Profesionales comprometidos con tu salud, especializados en hematología." }
-    ];
-
+        var galeriaItems = [
+            { src: null, icon: "&#x1F3E5;", title: "Fachada principal",      desc: "Así nos verás al llegar. Estamos en Av. Lázaro Cárdenas, Abasolo, Guanajuato." },
+            { src: null, icon: "&#x1F52C;", title: "Área de microscopía",    desc: "Microscopios de última generación para análisis hematológicos especializados." },
+            { src: null, icon: "&#x1F9EC;", title: "Equipos de análisis",    desc: "Tecnología de vanguardia para resultados precisos en el menor tiempo posible." },
+            { src: null, icon: "&#x1FA7A;", title: "Toma de muestras",       desc: "Área cómoda y segura con personal capacitado y amable." },
+            { src: null, icon: "&#x1F468;&#x200D;&#x2695;&#xFE0F;", title: "Nuestro equipo", desc: "Profesionales comprometidos con tu salud, especializados en hematología." }
+        ];
 
         function openLightbox(i) {
             var item = galeriaItems[i];
