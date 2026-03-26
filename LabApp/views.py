@@ -4,7 +4,8 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from django.shortcuts import render, get_object_or_404
-from django.http import HttpResponse, FileResponse
+from django.http import HttpResponse, FileResponse, JsonResponse
+from django.views.decorators.http import require_GET
 from django.db.models import Q
 
 from .models import (
@@ -121,15 +122,12 @@ def _construir_detalles_analisis(analisis):
     quimico     = analisis.creado_por
 
     # --- Logo del laboratorio ---
-    # ✅ Corregido: usa _descargar_imagen_bytes en vez de laboratorio.logo.open("rb")
     logo_bytes = _descargar_imagen_bytes(laboratorio.logo if laboratorio else None)
 
     # --- Firma digital del químico ---
-    # ✅ Corregido: mismo patrón — descarga desde Cloudinary
     firma_bytes = _descargar_imagen_bytes(quimico.firma_digital if quimico else None)
 
     # --- Imágenes del análisis (solo para IMAGENES_RESULTADOS) ---
-    # ✅ Corregido: mismo patrón
     imagen_bytes1 = None
     imagen_bytes2 = None
     if analisis.plantilla and analisis.plantilla.tipo_formato == 'IMAGENES_RESULTADOS':
@@ -233,3 +231,81 @@ def generar_pdf_analisis(request, pk):
         content_type='application/pdf',
         filename=f"analisis_{pk}.pdf"
     )
+
+
+# ======================================================
+# 🔹 ADMIN EXT — Tipo de formato de plantilla (para JS del admin)
+# ======================================================
+
+@require_GET
+def plantilla_tipo_formato(request, plantilla_id):
+    """
+    Vista ligera que devuelve el tipo_formato de una plantilla en JSON.
+    Usada por analisis_imagenes_toggle.js para mostrar/ocultar
+    la sección de imágenes según el tipo de plantilla seleccionada.
+    """
+    try:
+        plantilla = Plantilla.objects.only('tipo_formato').get(pk=plantilla_id)
+        return JsonResponse({'tipo_formato': plantilla.tipo_formato})
+    except Plantilla.DoesNotExist:
+        return JsonResponse({'tipo_formato': None}, status=404)
+
+@require_GET
+def plantilla_propiedades(request, plantilla_id):
+    """
+    Devuelve las propiedades de una plantilla en JSON.
+    Si se pasa ?paciente_id=X filtra las propiedades que tengan
+    al menos un intervalo de referencia compatible con la edad y
+    el sexo del paciente, devolviendo también esos valores de referencia.
+    """
+    try:
+        plantilla = Plantilla.objects.get(pk=plantilla_id)
+    except Plantilla.DoesNotExist:
+        return JsonResponse({'propiedades': []}, status=404)
+
+    paciente_id = request.GET.get('paciente_id')
+    paciente    = None
+
+    if paciente_id:
+        try:
+            paciente = Paciente.objects.get(pk=paciente_id)
+        except Paciente.DoesNotExist:
+            paciente = None
+
+    propiedades_qs = plantilla.propiedades.all()
+    resultado = []
+
+    for prop in propiedades_qs:
+        if paciente:
+            edad_meses = paciente.edad_en_meses
+
+            # Busca el intervalo más específico que aplique a este paciente
+            intervalo = prop.intervalos.filter(
+                Q(sexo=paciente.sexo) | Q(sexo='AMBOS')
+            ).filter(
+                Q(edad_min_meses__isnull=True) | Q(edad_min_meses__lte=edad_meses)
+            ).filter(
+                Q(edad_max_meses__isnull=True) | Q(edad_max_meses__gte=edad_meses)
+            ).first()
+
+            # Si la propiedad no tiene ningún intervalo que aplique
+            # a este paciente, la omitimos
+            if prop.intervalos.exists() and not intervalo:
+                continue
+
+            resultado.append({
+                'nombre_propiedad': prop.nombre_propiedad,
+                'unidad':           prop.unidad or '',
+                'valor_min':        intervalo.valor_min if intervalo else None,
+                'valor_max':        intervalo.valor_max if intervalo else None,
+            })
+        else:
+            # Sin paciente seleccionado: devuelve todas sin filtrar
+            resultado.append({
+                'nombre_propiedad': prop.nombre_propiedad,
+                'unidad':           prop.unidad or '',
+                'valor_min':        None,
+                'valor_max':        None,
+            })
+
+    return JsonResponse({'propiedades': resultado})

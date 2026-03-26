@@ -18,3 +18,5 @@ __pycache__/
 # Static/media
 staticfiles/
 media/
+
+loinc_documentos/

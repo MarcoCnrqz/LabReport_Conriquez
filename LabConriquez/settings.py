@@ -168,7 +168,7 @@ CLOUDINARY_STORAGE = {
 # ======================================================================
 
 STORAGES = {
-    # 1. Media (Tus imágenes) -> SE VAN A CLOUDINARY
+    # 1. Media  -> SE VAN A CLOUDINARY
     "default": {
         "BACKEND": "cloudinary_storage.storage.MediaCloudinaryStorage",
     },

@@ -1,7 +1,21 @@
 {% extends "admin/base.html" %}
+{% load static %}
 
-{% block userlinks %}
-    <a href="{% url 'inicio' %}">Ver sitio</a> /
-    <a href="{% url 'admin:password_change' %}">Cambiar contraseña</a> /
-    <a href="{% url 'admin:logout' %}">Cerrar sesión</a>
+{% block title %}{% if subtitle %}{{ subtitle }} | {% endif %}{{ title }} | Laboratorio ICE{% endblock %}
+
+{% block extrastyle %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static 'admin/css/diseno_admin.css' %}">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 {% endblock %}
+
+{% block branding %}
+<div id="site-name">
+    <a href="{% url 'admin:index' %}">
+        <img src="{% static 'admin/LogoICE.png' %}" alt="Logo ICE" style="height: 50px; vertical-align: middle; margin-right: 15px;">
+        <span class="ice-branding-title"> ¡Bienvenido! </span>
+    </a>
+</div>
+{% endblock %}
+
+{% block nav-global %}{% endblock %}

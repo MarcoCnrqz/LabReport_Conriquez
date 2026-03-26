@@ -41,7 +41,9 @@ urlpatterns = [
     path('api/mi_laboratorio/', views.mi_laboratorio_api, name='mi_laboratorio_api'),
 
     # ✅ NUEVA: Ruta para generar PDF de un análisis
-    path('admin_ext/analisis/<int:pk>/generar_pdf/', views.generar_pdf_analisis, name='generar_pdf_analisis'),
+path('admin_ext/analisis/<int:pk>/generar_pdf/', views.generar_pdf_analisis, name='generar_pdf_analisis'),
+path('admin_ext/plantilla/<int:plantilla_id>/tipo_formato/', views.plantilla_tipo_formato, name='plantilla_tipo_formato'),
+path('admin_ext/plantilla/<int:plantilla_id>/propiedades/', views.plantilla_propiedades, name='plantilla_propiedades'),
 ]
 
 # ======================================================

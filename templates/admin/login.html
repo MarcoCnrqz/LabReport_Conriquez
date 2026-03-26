@@ -19,43 +19,45 @@
 
 {% block content %}
 
-{% if form.errors and not form.non_field_errors %}
-<p class="errornote">
-{% blocktranslate count counter=form.errors.items|length %}
-    Please correct the error below.{% plural %}Please correct the errors below.
-{% endblocktranslate %}
-</p>
-{% endif %}
-
-{% if form.non_field_errors %}
-{% for error in form.non_field_errors %}
-<p class="errornote">
-    {{ error }}
-</p>
-{% endfor %}
-{% endif %}
-
 <div id="content-main">
 
-    <!-- Logo y título centrado -->
+    <!-- Logo -->
     <div class="login-logo">
         <img src="{% static 'admin/LogoICE.png' %}" alt="Logo" class="logo">
     </div>
 
+    <!-- Título -->
     <div class="login-title">
         <h1>Mi Panel de Administración</h1>
     </div>
 
-    {% if user.is_authenticated %}
+    <!-- Errores DENTRO de la caja para que no descentren el panel -->
+    {% if form.errors and not form.non_field_errors %}
     <p class="errornote">
-    {% blocktranslate trimmed %}
-        You are authenticated as {{ username }}, but are not authorized to
-        access this page. Would you like to login to a different account?
-    {% endblocktranslate %}
+        {% blocktranslate count counter=form.errors.items|length %}
+            Please correct the error below.
+        {% plural %}
+            Please correct the errors below.
+        {% endblocktranslate %}
     </p>
     {% endif %}
 
-    <!-- Formulario de login -->
+    {% if form.non_field_errors %}
+        {% for error in form.non_field_errors %}
+        <p class="errornote">{{ error }}</p>
+        {% endfor %}
+    {% endif %}
+
+    {% if user.is_authenticated %}
+    <p class="errornote">
+        {% blocktranslate trimmed %}
+            You are authenticated as {{ username }}, but are not authorized to
+            access this page. Would you like to login to a different account?
+        {% endblocktranslate %}
+    </p>
+    {% endif %}
+
+    <!-- Formulario -->
     <form action="{{ app_path }}" method="post" id="login-form">{% csrf_token %}
         <div class="form-row">
             {{ form.username.errors }}
@@ -78,4 +80,5 @@
     </form>
 
 </div>
+
 {% endblock %}

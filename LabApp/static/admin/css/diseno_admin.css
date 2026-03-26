@@ -1,0 +1,690 @@
+/* ================================================================
+   DJANGO ADMIN — Tema personalizado · Laboratorio ICE
+
+
+/* ================================================================
+   VARIABLES — Modo Claro
+   ================================================================ */
+:root,
+[data-theme="light"] {
+    --ice-primary:          #bbc724;
+    --ice-primary-dark:     #8a941a;
+    --ice-primary-light:    #dde34a;
+    --ice-text-on-primary:  #1a1a1a;
+
+    --ice-bg-page:          #f4f5ee;
+    --ice-bg-surface:       #ffffff;
+    --ice-bg-header:        #bbc724;
+    --ice-bg-breadcrumb:    #8a941a;
+    --ice-bg-sidebar-h2:    #bbc724;
+    --ice-bg-table-th:      #e2dede;
+    --ice-bg-module-h2:     #bbc724;
+    --ice-bg-filter-h:      #bbc724;
+    --ice-bg-fieldset-h:    #e6ea90;
+    --ice-bg-input:         #ffffff;
+
+    --ice-text-main:        #1a1a1a;
+    --ice-text-input:       #1a1a1a;
+    --ice-border-input:     #cccccc;
+
+    --ice-link:             #5a6300;
+    --ice-link-hover:       #8a941a;
+    --ice-link-sidebar:     #4a5200;
+
+    --ice-row-hover:        rgba(187, 199, 36, 0.12);
+    --ice-paginator-act:    #bbc724;
+
+    --ice-btn-bg:           #bbc724;
+    --ice-btn-bg-hover:     #8a941a;
+    --ice-btn-text:         #ffffff;
+
+    --ice-msg-success-bg:   #edf5c0;
+    --ice-msg-success-bd:   #8a941a;
+    --ice-msg-success-tx:   #3a4800;
+    --ice-msg-warning-bg:   #fff8dc;
+    --ice-msg-warning-bd:   #d4a017;
+    --ice-msg-warning-tx:   #5c4000;
+    --ice-msg-error-bg:     #fdecea;
+    --ice-msg-error-bd:     #c0392b;
+    --ice-msg-error-tx:     #7a1a10;
+
+    --ice-delete:           #c0392b;
+    --ice-add-change:       #5a6300;
+}
+
+
+/* ================================================================
+   VARIABLES — Modo Oscuro ([data-theme="dark"])
+   ================================================================ */
+[data-theme="dark"] {
+    --ice-primary:          #bbc724;
+    --ice-primary-dark:     #8a941a;
+    --ice-primary-light:    #dde34a;
+    --ice-text-on-primary:  #1a1a1a;
+
+    --ice-bg-page:          #111111;
+    --ice-bg-surface:       #1e1e1e;
+    --ice-bg-header:        #1a1a1a;
+    --ice-bg-breadcrumb:    #1a1a1a;
+    --ice-bg-sidebar-h2:    #2a2a0d;
+    --ice-bg-table-th:      #111111;
+    --ice-bg-module-h2:     #232300;
+    --ice-bg-filter-h:      #232300;
+    --ice-bg-fieldset-h:    #1e2400;
+    --ice-bg-input:         #2a2a2a;
+
+    --ice-text-main:        #e0e0e0;
+    --ice-text-input:       #e0e0e0;
+    --ice-border-input:     #444444;
+
+    --ice-link:             #bbc724;
+    --ice-link-hover:       #dde34a;
+    --ice-link-sidebar:     #bbc724;
+
+    --ice-row-hover:        rgba(187, 199, 36, 0.08);
+    --ice-paginator-act:    #3a4200;
+
+    --ice-btn-bg:           #3a4200;
+    --ice-btn-bg-hover:     #4e5900;
+    --ice-btn-text:         #dde34a;
+
+    --ice-msg-success-bg:   #1a2500;
+    --ice-msg-success-bd:   #8a941a;
+    --ice-msg-success-tx:   #bbc724;
+    --ice-msg-warning-bg:   #2a2200;
+    --ice-msg-warning-bd:   #c09000;
+    --ice-msg-warning-tx:   #ffd966;
+    --ice-msg-error-bg:     #2a0a0a;
+    --ice-msg-error-bd:     #c0392b;
+    --ice-msg-error-tx:     #f1948a;
+
+    --ice-delete:           #e74c3c;
+    --ice-add-change:       #bbc724;
+}
+
+/* Variables duplicadas para prefers-color-scheme */
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        --ice-primary:          #bbc724;
+        --ice-primary-dark:     #8a941a;
+        --ice-primary-light:    #dde34a;
+        --ice-text-on-primary:  #1a1a1a;
+        --ice-bg-page:          #111111;
+        --ice-bg-surface:       #1e1e1e;
+        --ice-bg-header:        #1a1a1a;
+        --ice-bg-breadcrumb:    #1a1a1a;
+        --ice-bg-sidebar-h2:    #2a2a0d;
+        --ice-bg-table-th:      #111111;
+        --ice-bg-module-h2:     #232300;
+        --ice-bg-filter-h:      #232300;
+        --ice-bg-fieldset-h:    #1e2400;
+        --ice-bg-input:         #2a2a2a;
+        --ice-text-main:        #e0e0e0;
+        --ice-text-input:       #e0e0e0;
+        --ice-border-input:     #444444;
+        --ice-link:             #bbc724;
+        --ice-link-hover:       #dde34a;
+        --ice-link-sidebar:     #bbc724;
+        --ice-row-hover:        rgba(187, 199, 36, 0.08);
+        --ice-paginator-act:    #3a4200;
+        --ice-btn-bg:           #3a4200;
+        --ice-btn-bg-hover:     #4e5900;
+        --ice-btn-text:         #dde34a;
+        --ice-msg-success-bg:   #1a2500;
+        --ice-msg-success-bd:   #8a941a;
+        --ice-msg-success-tx:   #bbc724;
+        --ice-msg-warning-bg:   #2a2200;
+        --ice-msg-warning-bd:   #c09000;
+        --ice-msg-warning-tx:   #ffd966;
+        --ice-msg-error-bg:     #2a0a0a;
+        --ice-msg-error-bd:     #c0392b;
+        --ice-msg-error-tx:     #f1948a;
+        --ice-delete:           #e74c3c;
+        --ice-add-change:       #bbc724;
+    }
+}
+
+
+/* ================================================================
+   ICONOS SVG DE DJANGO — Azul → Verde-lima (#bbc724)
+   Aplica en AMBOS modos (claro y oscuro).
+   Cubre: ojito (view), calendario, reloj, lupa de relacionados,
+   flechas del selector, toggle del sidebar.
+   ================================================================ */
+.datetimeshortcuts a,
+.datetimeshortcuts a img,
+a.related-lookup,
+a.related-lookup img,
+.related-widget-wrapper a img,
+.viewlink,
+.viewlink img,
+.inlinechangelink,
+.inlinechangelink img,
+#toggle-nav-sidebar,
+.calendarnav-previous,
+.calendarnav-next,
+img[src*="icon-viewlink"],
+img[src*="icon-addlink"],
+img[src*="icon-changelink"],
+img[src*="icon-deletelink"],
+img[src*="selector-"],
+img[src*="calendar-icons"],
+img[src*="clock"] {
+    filter: invert(68%) sepia(80%) saturate(600%)
+            hue-rotate(25deg) brightness(90%) contrast(100%) !important;
+}
+
+
+/* ================================================================
+   BASE — cuerpo
+   ================================================================ */
+body {
+    background: var(--ice-bg-page) !important;
+    color: var(--ice-text-main) !important;
+}
+
+
+/* ================================================================
+   MODO OSCURO — Fix global de fondos blancos
+   Todos los contenedores que Django hardcodea en blanco.
+   ================================================================ */
+[data-theme="dark"] body,
+[data-theme="dark"] #container,
+[data-theme="dark"] #content,
+[data-theme="dark"] #content-main,
+[data-theme="dark"] .content-main,
+[data-theme="dark"] #changelist,
+[data-theme="dark"] #changelist-form,
+[data-theme="dark"] .results,
+[data-theme="dark"] #result_list,
+[data-theme="dark"] .module,
+[data-theme="dark"] .module table,
+[data-theme="dark"] fieldset,
+[data-theme="dark"] fieldset.module,
+[data-theme="dark"] .form-row,
+[data-theme="dark"] .aligned,
+[data-theme="dark"] .change-list,
+[data-theme="dark"] #changelist-filter,
+[data-theme="dark"] #nav-sidebar,
+[data-theme="dark"] .sidebar-module,
+[data-theme="dark"] .sidebar-module ul,
+[data-theme="dark"] td,
+[data-theme="dark"] th {
+    background-color: var(--ice-bg-surface) !important;
+    color: var(--ice-text-main) !important;
+}
+
+/* Página y wrapper van más oscuros que las tarjetas */
+[data-theme="dark"] body,
+[data-theme="dark"] #container {
+    background-color: var(--ice-bg-page) !important;
+}
+
+/* Inputs, selects y textareas */
+[data-theme="dark"] input:not([type="submit"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+[data-theme="dark"] select,
+[data-theme="dark"] textarea {
+    background: var(--ice-bg-input) !important;
+    color: var(--ice-text-input) !important;
+    border: 1px solid var(--ice-border-input) !important;
+    border-radius: 4px;
+}
+
+/* Filas alternadas */
+[data-theme="dark"] #result_list tr.row1,
+[data-theme="dark"] #result_list tr.row1 td,
+[data-theme="dark"] #result_list tr.row1 th { background: #1e1e1e !important; }
+
+[data-theme="dark"] #result_list tr.row2,
+[data-theme="dark"] #result_list tr.row2 td,
+[data-theme="dark"] #result_list tr.row2 th { background: #1a1a1a !important; }
+
+/* Encabezados de tabla */
+[data-theme="dark"] #result_list thead th,
+[data-theme="dark"] #result_list thead th a { background: #0d0d0d !important; color: var(--ice-primary) !important; }
+
+/* Panel derecho de filtros */
+[data-theme="dark"] #changelist-filter        { background: #181818 !important; }
+[data-theme="dark"] #changelist-filter h2,
+[data-theme="dark"] #changelist-filter h3     { background: var(--ice-bg-filter-h) !important; color: var(--ice-primary) !important; }
+[data-theme="dark"] #changelist-filter ul,
+[data-theme="dark"] #changelist-filter li     { background: transparent !important; }
+[data-theme="dark"] #changelist-filter a:link,
+[data-theme="dark"] #changelist-filter a:visited { color: var(--ice-primary) !important; }
+[data-theme="dark"] #changelist-filter a:hover   { color: var(--ice-primary-light) !important; }
+[data-theme="dark"] #changelist-filter li.selected a { color: var(--ice-primary-light) !important; font-weight: 700; }
+
+/* Mismo bloque para prefers-color-scheme */
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) body,
+    :root:not([data-theme="light"]) #container,
+    :root:not([data-theme="light"]) #content,
+    :root:not([data-theme="light"]) #content-main,
+    :root:not([data-theme="light"]) .content-main,
+    :root:not([data-theme="light"]) #changelist,
+    :root:not([data-theme="light"]) #changelist-form,
+    :root:not([data-theme="light"]) .results,
+    :root:not([data-theme="light"]) #result_list,
+    :root:not([data-theme="light"]) .module,
+    :root:not([data-theme="light"]) .module table,
+    :root:not([data-theme="light"]) fieldset,
+    :root:not([data-theme="light"]) fieldset.module,
+    :root:not([data-theme="light"]) .form-row,
+    :root:not([data-theme="light"]) .aligned,
+    :root:not([data-theme="light"]) .change-list,
+    :root:not([data-theme="light"]) #changelist-filter,
+    :root:not([data-theme="light"]) #nav-sidebar,
+    :root:not([data-theme="light"]) .sidebar-module,
+    :root:not([data-theme="light"]) .sidebar-module ul,
+    :root:not([data-theme="light"]) td,
+    :root:not([data-theme="light"]) th {
+        background-color: var(--ice-bg-surface) !important;
+        color: var(--ice-text-main) !important;
+    }
+
+    :root:not([data-theme="light"]) body,
+    :root:not([data-theme="light"]) #container {
+        background-color: var(--ice-bg-page) !important;
+    }
+
+    :root:not([data-theme="light"]) input:not([type="submit"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+    :root:not([data-theme="light"]) select,
+    :root:not([data-theme="light"]) textarea {
+        background: var(--ice-bg-input) !important;
+        color: var(--ice-text-input) !important;
+        border: 1px solid var(--ice-border-input) !important;
+    }
+
+    :root:not([data-theme="light"]) #result_list tr.row1,
+    :root:not([data-theme="light"]) #result_list tr.row1 td,
+    :root:not([data-theme="light"]) #result_list tr.row1 th { background: #1e1e1e !important; }
+
+    :root:not([data-theme="light"]) #result_list tr.row2,
+    :root:not([data-theme="light"]) #result_list tr.row2 td,
+    :root:not([data-theme="light"]) #result_list tr.row2 th { background: #1a1a1a !important; }
+
+    :root:not([data-theme="light"]) #result_list thead th,
+    :root:not([data-theme="light"]) #result_list thead th a { background: #0d0d0d !important; color: var(--ice-primary) !important; }
+
+    :root:not([data-theme="light"]) #changelist-filter        { background: #181818 !important; }
+    :root:not([data-theme="light"]) #changelist-filter h2,
+    :root:not([data-theme="light"]) #changelist-filter h3     { background: var(--ice-bg-filter-h) !important; color: var(--ice-primary) !important; }
+    :root:not([data-theme="light"]) #changelist-filter ul,
+    :root:not([data-theme="light"]) #changelist-filter li     { background: transparent !important; }
+    :root:not([data-theme="light"]) #changelist-filter a:link,
+    :root:not([data-theme="light"]) #changelist-filter a:visited { color: var(--ice-primary) !important; }
+    :root:not([data-theme="light"]) #changelist-filter a:hover   { color: var(--ice-primary-light) !important; }
+}
+
+
+/* ================================================================
+   HEADER
+   ================================================================ */
+#header {
+    background: var(--ice-bg-header) !important;
+    color: var(--ice-text-on-primary) !important;
+    border-bottom: 3px solid var(--ice-primary-dark) !important;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.15) !important;
+}
+
+#user-tools a,
+#branding h1 a { color: var(--ice-text-on-primary) !important; font-weight: 600; }
+
+#user-tools a:hover,
+#branding h1 a:hover { color: #000000 !important; text-decoration: underline; }
+
+[data-theme="dark"] #header { background: #1a1a1a !important; }
+[data-theme="dark"] #user-tools a,
+[data-theme="dark"] #branding h1 a { color: var(--ice-primary) !important; }
+[data-theme="dark"] #user-tools a:hover,
+[data-theme="dark"] #branding h1 a:hover { color: var(--ice-primary-light) !important; }
+
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) #header { background: #1a1a1a !important; }
+    :root:not([data-theme="light"]) #user-tools a,
+    :root:not([data-theme="light"]) #branding h1 a { color: var(--ice-primary) !important; }
+    :root:not([data-theme="light"]) #user-tools a:hover,
+    :root:not([data-theme="light"]) #branding h1 a:hover { color: var(--ice-primary-light) !important; }
+}
+
+
+/* ================================================================
+   BREADCRUMBS
+   ================================================================ */
+div.breadcrumbs {
+    background: var(--ice-bg-breadcrumb) !important;
+    color: #ffffff !important;
+    border-bottom: 1px solid var(--ice-primary-dark) !important;
+}
+
+div.breadcrumbs a,
+div.breadcrumbs a:visited { color: #ffffff !important; }
+div.breadcrumbs a:hover   { color: #ffffffcc !important; text-decoration: underline; }
+
+[data-theme="dark"] div.breadcrumbs { background: #1a1a1a !important; color: var(--ice-primary) !important; border-bottom: 1px solid #333 !important; }
+[data-theme="dark"] div.breadcrumbs a,
+[data-theme="dark"] div.breadcrumbs a:visited { color: var(--ice-primary) !important; }
+[data-theme="dark"] div.breadcrumbs a:hover   { color: var(--ice-primary-light) !important; }
+
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) div.breadcrumbs { background: #1a1a1a !important; color: var(--ice-primary) !important; border-bottom: 1px solid #333 !important; }
+    :root:not([data-theme="light"]) div.breadcrumbs a,
+    :root:not([data-theme="light"]) div.breadcrumbs a:visited { color: var(--ice-primary) !important; }
+    :root:not([data-theme="light"]) div.breadcrumbs a:hover   { color: var(--ice-primary-light) !important; }
+}
+
+
+/* ================================================================
+   SIDEBAR
+   ================================================================ */
+#nav-sidebar caption,
+#nav-sidebar .module > h2 { background: var(--ice-bg-sidebar-h2) !important; color: var(--ice-text-on-primary) !important; letter-spacing: 0.03em; }
+#nav-sidebar a             { color: var(--ice-link-sidebar) !important; }
+#nav-sidebar a:hover       { background: var(--ice-primary) !important; color: var(--ice-text-on-primary) !important; border-radius: 4px; }
+
+[data-theme="dark"] #nav-sidebar caption,
+[data-theme="dark"] #nav-sidebar .module > h2 { background: #232300 !important; color: var(--ice-primary) !important; }
+[data-theme="dark"] #nav-sidebar a            { color: var(--ice-primary) !important; }
+[data-theme="dark"] #nav-sidebar a:hover      { background: #2e3200 !important; color: var(--ice-primary-light) !important; }
+
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) #nav-sidebar caption,
+    :root:not([data-theme="light"]) #nav-sidebar .module > h2 { background: #232300 !important; color: var(--ice-primary) !important; }
+    :root:not([data-theme="light"]) #nav-sidebar a            { color: var(--ice-primary) !important; }
+    :root:not([data-theme="light"]) #nav-sidebar a:hover      { background: #2e3200 !important; color: var(--ice-primary-light) !important; }
+}
+
+
+/* ================================================================
+   MÓDULOS DEL DASHBOARD
+   ================================================================ */
+.module h2,
+.module caption,
+.inline-group h2,
+#recent-actions-module h2 { background: var(--ice-bg-module-h2) !important; color: var(--ice-text-on-primary) !important; border-radius: 4px 4px 0 0; }
+
+[data-theme="dark"] .module h2,
+[data-theme="dark"] .module caption,
+[data-theme="dark"] .inline-group h2,
+[data-theme="dark"] #recent-actions-module h2 { background: #232300 !important; color: var(--ice-primary) !important; }
+
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .module h2,
+    :root:not([data-theme="light"]) .module caption,
+    :root:not([data-theme="light"]) .inline-group h2,
+    :root:not([data-theme="light"]) #recent-actions-module h2 { background: #232300 !important; color: var(--ice-primary) !important; }
+}
+
+
+/* ================================================================
+   FIELDSETS
+   ================================================================ */
+fieldset h2 { background: var(--ice-bg-fieldset-h) !important; color: #2a2e00 !important; border-left: 4px solid var(--ice-primary-dark) !important; }
+
+[data-theme="dark"] fieldset h2 { background: #1e2400 !important; color: var(--ice-primary) !important; }
+
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) fieldset h2 { background: #1e2400 !important; color: var(--ice-primary) !important; }
+}
+
+
+/* ================================================================
+   TABLAS
+   ================================================================ */
+#result_list thead th,
+#result_list thead th a { background: var(--ice-bg-table-th) !important; color: var(--ice-primary) !important; }
+#result_list thead th a:hover { color: var(--ice-primary-dark) !important; }
+#result_list tbody tr:hover { background-color: var(--ice-row-hover) !important; }
+#result_list tr.row1 { background: var(--ice-bg-surface) !important; }
+#result_list tr.row2 { background: #f9faf0 !important; }
+
+
+/* ================================================================
+   FILTROS LATERALES (modo claro)
+   ================================================================ */
+#changelist-filter h2,
+#changelist-filter h3     { background: var(--ice-bg-filter-h) !important; color: var(--ice-text-on-primary) !important; }
+#changelist-filter a:link,
+#changelist-filter a:visited { color: var(--ice-link) !important; }
+#changelist-filter a:hover   { color: var(--ice-link-hover) !important; text-decoration: underline; }
+#changelist-filter li.selected a { color: var(--ice-primary-dark) !important; font-weight: 700; }
+
+
+/* ================================================================
+   LINKS GENERALES
+   ================================================================ */
+#content a:link,
+#content a:visited { color: var(--ice-link) !important; }
+#content a:hover   { color: var(--ice-link-hover) !important; text-decoration: underline; }
+
+
+/* ================================================================
+   PAGINACIÓN
+   ================================================================ */
+.paginator a:link,
+.paginator a:visited { color: var(--ice-link) !important; }
+.paginator a:hover   { color: var(--ice-link-hover) !important; }
+.paginator .this-page { background: var(--ice-paginator-act) !important; color: var(--ice-text-on-primary) !important; font-weight: 700; border-radius: 4px; padding: 2px 8px; }
+
+[data-theme="dark"] .paginator .this-page { color: var(--ice-primary) !important; }
+
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .paginator .this-page { color: var(--ice-primary) !important; }
+}
+
+
+/* ================================================================
+   BOTONES
+   ================================================================ */
+.button,
+input[type="submit"],
+.submit-row input,
+a.button {
+    background: var(--ice-btn-bg) !important;
+    color: var(--ice-btn-text) !important;
+    border: none !important;
+    font-weight: 700;
+    border-radius: 4px;
+    transition: background 0.2s, color 0.2s;
+}
+
+.button:hover,
+input[type="submit"]:hover,
+.submit-row input:hover,
+a.button:hover { background: var(--ice-btn-bg-hover) !important; color: #ffffff !important; }
+
+[data-theme="dark"] .button,
+[data-theme="dark"] input[type="submit"],
+[data-theme="dark"] .submit-row input,
+[data-theme="dark"] a.button { border: 1px solid var(--ice-primary-dark) !important; }
+
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .button,
+    :root:not([data-theme="light"]) input[type="submit"],
+    :root:not([data-theme="light"]) .submit-row input,
+    :root:not([data-theme="light"]) a.button { border: 1px solid var(--ice-primary-dark) !important; }
+}
+
+.submit-row a.deletelink             { background: #c0392b !important; color: #ffffff !important; }
+.submit-row a.deletelink:hover       { background: #962d22 !important; }
+
+[data-theme="dark"] .submit-row a.deletelink       { background: #5c1a14 !important; color: #f1948a !important; border: 1px solid #c0392b !important; }
+[data-theme="dark"] .submit-row a.deletelink:hover { background: #7a201a !important; color: #ffffff !important; }
+
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .submit-row a.deletelink       { background: #5c1a14 !important; color: #f1948a !important; border: 1px solid #c0392b !important; }
+    :root:not([data-theme="light"]) .submit-row a.deletelink:hover { background: #7a201a !important; color: #ffffff !important; }
+}
+
+
+/* ================================================================
+   ICONOS DE ACCIÓN TEXTO
+   ================================================================ */
+.addlink, .changelink       { color: var(--ice-add-change) !important; }
+.addlink:hover,
+.changelink:hover           { color: var(--ice-primary-dark) !important; }
+.deletelink                 { color: var(--ice-delete) !important; }
+
+
+/* ================================================================
+   MENSAJES DEL SISTEMA
+   ================================================================ */
+.messagelist li { padding: 10px 16px; border-radius: 6px; border-left-width: 5px; border-left-style: solid; }
+.messagelist li.success { background-color: var(--ice-msg-success-bg) !important; color: var(--ice-msg-success-tx) !important; border-left-color: var(--ice-msg-success-bd) !important; }
+.messagelist li.warning { background-color: var(--ice-msg-warning-bg) !important; color: var(--ice-msg-warning-tx) !important; border-left-color: var(--ice-msg-warning-bd) !important; }
+.messagelist li.error   { background-color: var(--ice-msg-error-bg) !important;   color: var(--ice-msg-error-tx) !important;   border-left-color: var(--ice-msg-error-bd) !important; }
+
+
+/* ================================================================
+   CALENDARIOS
+   ================================================================ */
+.calendarbox h2,
+.clockbox h2 { background: var(--ice-bg-module-h2) !important; color: var(--ice-text-on-primary) !important; }
+
+[data-theme="dark"] .calendarbox h2,
+[data-theme="dark"] .clockbox h2 { background: #232300 !important; color: var(--ice-primary) !important; }
+
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .calendarbox h2,
+    :root:not([data-theme="light"]) .clockbox h2 { background: #232300 !important; color: var(--ice-primary) !important; }
+}
+
+.calendar td a:hover, .timelist a:hover { background: var(--ice-primary-light) !important; color: var(--ice-text-on-primary) !important; }
+.calendar td.selected a { background: var(--ice-primary) !important; color: var(--ice-text-on-primary) !important; }
+
+[data-theme="dark"] .calendar td.selected a { background: #3a4200 !important; color: var(--ice-primary) !important; }
+
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .calendar td.selected a { background: #3a4200 !important; color: var(--ice-primary) !important; }
+}
+
+
+/* ================================================================
+   SELECTOR HORIZONTAL
+   ================================================================ */
+.selector h2 { background: var(--ice-bg-module-h2) !important; color: var(--ice-text-on-primary) !important; }
+.selector-chosenlist .selector-chosen { background: #f0f3c5 !important; }
+
+[data-theme="dark"] .selector h2 { background: #232300 !important; color: var(--ice-primary) !important; }
+[data-theme="dark"] .selector-chosenlist .selector-chosen { background: #1e2a00 !important; color: var(--ice-primary) !important; }
+
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .selector h2 { background: #232300 !important; color: var(--ice-primary) !important; }
+    :root:not([data-theme="light"]) .selector-chosenlist .selector-chosen { background: #1e2a00 !important; color: var(--ice-primary) !important; }
+}
+
+
+/* ================================================================
+   INLINE TABULAR
+   ================================================================ */
+.inline-group { border: 1px solid #d2d9a0 !important; border-radius: 6px; overflow: hidden; }
+
+[data-theme="dark"] .inline-group { border: 1px solid #2a2a00 !important; }
+
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .inline-group { border: 1px solid #2a2a00 !important; }
+}
+
+
+/* ================================================================
+   OBJECT TOOLS
+   ================================================================ */
+ul.object-tools a       { background: var(--ice-primary-dark) !important; color: #ffffff !important; border-radius: 20px; font-weight: 600; }
+ul.object-tools a:hover { background: var(--ice-primary) !important; color: var(--ice-text-on-primary) !important; }
+
+[data-theme="dark"] ul.object-tools a       { background: #2e3200 !important; color: var(--ice-primary) !important; border: 1px solid var(--ice-primary-dark) !important; }
+[data-theme="dark"] ul.object-tools a:hover { background: #3d4500 !important; color: var(--ice-primary-light) !important; }
+
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) ul.object-tools a       { background: #2e3200 !important; color: var(--ice-primary) !important; border: 1px solid var(--ice-primary-dark) !important; }
+    :root:not([data-theme="light"]) ul.object-tools a:hover { background: #3d4500 !important; color: var(--ice-primary-light) !important; }
+}
+
+
+/* ================================================================
+   SEARCH BAR
+   ================================================================ */
+#toolbar form input[type="text"],
+#searchbar { border: 2px solid var(--ice-primary) !important; background: var(--ice-bg-input) !important; color: var(--ice-text-input) !important; border-radius: 4px; }
+
+#toolbar form input[type="text"]:focus,
+#searchbar:focus { border-color: var(--ice-primary-dark) !important; outline: none; box-shadow: 0 0 0 3px rgba(187, 199, 36, 0.25) !important; }
+
+[data-theme="dark"] #searchbar:focus,
+[data-theme="dark"] #toolbar form input[type="text"]:focus { border-color: var(--ice-primary) !important; box-shadow: 0 0 0 3px rgba(187, 199, 36, 0.15) !important; }
+
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) #searchbar:focus,
+    :root:not([data-theme="light"]) #toolbar form input[type="text"]:focus { border-color: var(--ice-primary) !important; box-shadow: 0 0 0 3px rgba(187, 199, 36, 0.15) !important; }
+}
+
+
+/* ================================================================
+   POPUPS Y WIDGETS RELACIONADOS
+   ================================================================ */
+.related-widget-wrapper-link       { color: var(--ice-link) !important; }
+.related-widget-wrapper-link:hover { color: var(--ice-primary-dark) !important; }
+
+/* Botón de tema — fondo verde en modo claro */
+button.theme-toggle {
+    background-color: var(--ice-primary) !important;
+    border-radius: 6px !important;
+    padding: 4px !important;
+    border: none !important;
+}
+
+/* Iconos blancos en modo claro */
+button.theme-toggle svg,
+button.theme-toggle use,
+button.theme-toggle #icon-sun,
+button.theme-toggle #icon-moon,
+button.theme-toggle #icon-auto {
+    fill: #ffffff !important;
+    color: var(--ice-primary) !important;
+}
+
+/* Modo oscuro — fondo negro, iconos verde-lima */
+[data-theme="dark"] button.theme-toggle {
+    background-color: #111111 !important;
+}
+
+[data-theme="dark"] button.theme-toggle svg,
+[data-theme="dark"] button.theme-toggle use,
+[data-theme="dark"] button.theme-toggle #icon-sun,
+[data-theme="dark"] button.theme-toggle #icon-moon,
+[data-theme="dark"] button.theme-toggle #icon-auto {
+    fill: var(--ice-primary) !important;
+    color: var(--ice-primary) !important;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) button.theme-toggle {
+        background-color: var(--ice-bg-surface) !important;
+    }
+    :root:not([data-theme="light"]) button.theme-toggle svg,
+    :root:not([data-theme="light"]) button.theme-toggle use,
+    :root:not([data-theme="light"]) button.theme-toggle #icon-sun,
+    :root:not([data-theme="light"]) button.theme-toggle #icon-moon,
+    :root:not([data-theme="light"]) button.theme-toggle #icon-auto {
+        fill: var(--ice-primary) !important;
+        color: var(--ice-bg-surface) !important;
+    }
+}
+
+.ice-branding-title {
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-size: 1.5rem;
+    color: #ffffff;
+}
+
+[data-theme="dark"] .ice-branding-title {
+    color: var(--ice-primary);
+}
+
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .ice-branding-title {
+        color: var(--ice-primary);
+    }
+}
