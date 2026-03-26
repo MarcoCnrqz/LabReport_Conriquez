@@ -282,20 +282,22 @@ class ResultadoAnalisisForm(forms.ModelForm):
                     label='Valor',
                 )
 
-            # --- Campo 'unidad': deshabilitar visualmente y vaciar el valor ---
+            # --- Campo 'unidad': deshabilitar visualmente y mostrar "N/A" ---
             self.fields['unidad'].widget.attrs.update({
                 'disabled': True,
+                'readonly': True,
                 'style': (
                     'background-color:#f0f0f0;'
                     'color:#999;'
                     'cursor:not-allowed;'
                     'border:1px solid #ddd;'
+                    'border-radius:4px;'
+                    'padding:2px 6px;'
                 ),
                 'title': 'No aplica para propiedades cualitativas',
-                'placeholder': 'N/A',
             })
-            # Limpiar el valor inicial para que no muestre unidad en cualitativos
-            self.initial['unidad'] = ''
+            # Mostrar "N/A" como valor visual (disabled no lo envía al servidor)
+            self.initial['unidad'] = 'N/A'
 
     def _get_propiedad(self):
         """
@@ -508,7 +510,7 @@ class AnalisisAdmin(admin.ModelAdmin):
         if add:
             self.message_user(
                 request,
-                '⚠️ Atención: Una vez guardado el análisis, el Paciente y el Tipo de Análisis '
+                'Atención: Una vez guardado el análisis, el Paciente y el Tipo de Análisis '
                 '(Plantilla) no podrán modificarse. Verifique bien antes de guardar.',
                 level='warning'
             )

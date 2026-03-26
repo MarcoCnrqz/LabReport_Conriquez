@@ -413,7 +413,7 @@
 
             <!-- Galería -->
             <div>
-                <div class="section-title">📸 Nuestro Laboratorio</div>
+                <div class="section-title">Nuestro Laboratorio</div>
                 <div class="gallery-grid">
                     <div class="gallery-item gallery-item-wide" onclick="openLightbox(0)">
                         <img src="{% static 'admin/Laboratorio.jpeg' %}" alt="Fachada principal">
@@ -429,8 +429,7 @@
                     </div>
                     <div class="gallery-item" onclick="openLightbox(4)">
                         <div class="gallery-placeholder">
-                            <span>👨‍⚕️</span>
-                            <p>Nuestro equipo</p>
+                             <img src="{% static 'admin/NEquipo.jpeg' %}" alt="Nuestro equipo">
                         </div>
                     </div>
                 </div>
@@ -535,11 +534,11 @@
 
     <script>
         var galeriaItems = [
-            { src: "{% static 'admin/Laboratorio.jpeg' %}",  icon: "🏥", title: "Fachada principal",   desc: "Así nos verás al llegar. Estamos en Av. Lázaro Cárdenas, Abasolo, Guanajuato." },
+            { src: "{% static 'admin/Laboratorio.jpeg' %}",  icon: "🏥", title: "Fachada principal",   desc: "Así nos verás al llegar. Estamos en El varal de cabrera, Abasolo, Guanajuato." },
             { src: "{% static 'admin/JuanIrving.jpeg' %}",   icon: "🔬", title: "Área de microscopía", desc: "Microscopios de última generación para análisis hematológicos especializados." },
-            { src: "{% static 'admin/Equipos.jpeg' %}",      icon: "🧬", title: "Equipos de análisis", desc: "Tecnología de vanguardia para resultados precisos en el menor tiempo posible." },
-            { src: "{% static 'admin/Prueba.jpeg' %}",       icon: "🩺", title: "Toma de muestras",    desc: "Área cómoda y segura con personal capacitado y amable." },
-            { src: null, icon: "👨‍⚕️", title: "Nuestro equipo", desc: "Profesionales comprometidos con tu salud, especializados en hematología." }
+            { src: "{% static 'admin/Equipos.jpeg' %}",      icon: "🧬", title: "Equipos de análisis", desc: "Tecnología de vanguardia para resultados precisos en el menor tiempo posible" },
+            { src: "{% static 'admin/Prueba.jpeg' %}",       icon: "🩺", title: "Toma de muestras",    desc: "Área cómoda y segura con personal capacitado y amable, siempre disponibles para ti." },
+            { src: "{% static 'admin/NEquipo.jpeg' %}", title: "Nuestro equipo", desc: "Profesionales comprometidos con tu salud, especializados en hematología." }
         ];
 
         function openLightbox(i) {

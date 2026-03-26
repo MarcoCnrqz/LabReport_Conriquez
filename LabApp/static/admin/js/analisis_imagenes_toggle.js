@@ -151,7 +151,8 @@
         var inputValor = tr.querySelector(
             '[name="' + PREFIX + '-' + index + '-valor"]'
         );
-        if (inputValor && tipo === 'CUALITATIVO' && opcionesCualitativas) {
+        var tipoNorm = (tipo || '').trim().toUpperCase();
+        if (inputValor && tipoNorm === 'CUALITATIVO' && opcionesCualitativas) {
             var opciones = opcionesCualitativas
                 .split(',')
                 .map(function (o) { return o.trim(); })
@@ -186,7 +187,7 @@
         if (inputUnidad) {
             var tdUnidad = inputUnidad.closest('td');
 
-            if (tipo === 'CUALITATIVO') {
+            if (tipoNorm === 'CUALITATIVO') {
                 // Mostrar celda pero deshabilitar el input con "N/A"
                 if (tdUnidad) {
                     tdUnidad.style.display = '';
@@ -194,10 +195,15 @@
                     if (labelU) labelU.style.display = 'none';
                     tdUnidad.style.verticalAlign = 'middle';
                 }
+                inputUnidad.removeAttribute('disabled');
+                inputUnidad.removeAttribute('readonly');
                 inputUnidad.value = 'N/A';
+                inputUnidad.defaultValue = 'N/A';
                 inputUnidad.setAttribute('disabled', 'disabled');
                 inputUnidad.setAttribute('title', 'No aplica para propiedades cualitativas');
                 inputUnidad.style.cssText = ESTILO_UNIDAD_DESHABILITADA;
+                // Forzar repaint para que el valor sea visible pese a disabled
+                requestAnimationFrame(function() { inputUnidad.value = 'N/A'; });
 
             } else {
                 // CUANTITATIVO: mostrar unidad como readonly visual
@@ -215,13 +221,13 @@
         // ── intervalo de referencia / opciones ─────────────────────────
         var tdIntervalo = tr.querySelector('.field-intervalo_referencia');
         if (tdIntervalo) {
-            if (tipo === 'CUALITATIVO' && opcionesCualitativas) {
+            if (tipoNorm === 'CUALITATIVO' && opcionesCualitativas) {
                 tdIntervalo.textContent = opcionesCualitativas
                     .split(',')
                     .map(function (o) { return o.trim(); })
                     .join(' / ');
             } else if (
-                tipo === 'CUANTITATIVO' &&
+                tipoNorm === 'CUANTITATIVO' &&
                 valorMin !== null && valorMin !== undefined &&
                 valorMax !== null && valorMax !== undefined
             ) {
