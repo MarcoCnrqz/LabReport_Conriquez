@@ -45,7 +45,7 @@ class PropiedadPlantillaSerializer(serializers.ModelSerializer):
         for int_data in intervalos_data:
             IntervaloReferencia.objects.create(propiedad=propiedad, **int_data)
         return propiedad
-    
+
     def update(self, instance, validated_data):
         intervalos_data = validated_data.pop('intervalos', None)
         instance.nombre_propiedad = validated_data.get('nombre_propiedad', instance.nombre_propiedad)
@@ -71,14 +71,12 @@ class PlantillaSerializer(serializers.ModelSerializer):
 # ======================================================
 
 class ResultadoSerializer(serializers.ModelSerializer):
-    # ✅ valor_blob1 y valor_blob2 eliminados — ya no existen en ResultadoAnalisis
     class Meta:
         model = ResultadoAnalisis
         fields = ['id', 'loinc_code', 'nombre_propiedad', 'valor', 'unidad']
 
 class AnalisisSerializer(serializers.ModelSerializer):
     resultados = ResultadoSerializer(many=True, required=False)
-    # ✅ Imágenes del análisis completo manejadas con Base64
     imagen_resultado1 = Base64ImageField(max_length=None, use_url=True, required=False, allow_null=True)
     imagen_resultado2 = Base64ImageField(max_length=None, use_url=True, required=False, allow_null=True)
 
@@ -89,11 +87,11 @@ class AnalisisSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         resultados_data = validated_data.pop('resultados', [])
         analisis = Analisis.objects.create(**validated_data)
-        
+
         for res_data in resultados_data:
             nombre_prop = res_data.get('nombre_propiedad')
             loinc = res_data.get('loinc_code')
-            
+
             resultado_existente = None
             if loinc:
                 resultado_existente = ResultadoAnalisis.objects.filter(analisis=analisis, loinc_code=loinc).first()
@@ -130,5 +128,62 @@ class UsuarioSerializer(serializers.ModelSerializer):
     firma_digital = Base64ImageField(max_length=None, use_url=True, required=False, allow_null=True)
     class Meta:
         model = Usuario
-        fields = '__all__' 
+        fields = '__all__'
         extra_kwargs = {'password': {'write_only': True}}
+
+# ======================================================
+# 4. SERIALIZERS DE LOGIN (app de escritorio)
+# ======================================================
+
+class LoginSerializer(serializers.Serializer):
+    """Valida el body del POST /api/login/"""
+    correo   = serializers.EmailField()
+    password = serializers.CharField(write_only=True)
+
+
+class UsuarioLoginResponseSerializer(serializers.ModelSerializer):
+    """
+    Respuesta del endpoint /api/login/.
+    Expone solo los campos que la app Python/Tkinter consume.
+    'correo' se mapea desde correo_electronico para que el cliente
+    lo lea como data.get("correo").
+    """
+    correo = serializers.EmailField(source='correo_electronico')
+
+    class Meta:
+        model  = Usuario
+        fields = [
+            'id',
+            'nombre',
+            'correo',               # ← mapeado desde correo_electronico
+            'rol',
+            'puesto',
+            'titulo_abreviado',
+            'cedula_profesional',
+            'is_active',
+        ]
+
+
+class MiLaboratorioResponseSerializer(serializers.ModelSerializer):
+    """
+    Respuesta del endpoint GET /api/mi_laboratorio/?usuario_id=X
+    Devuelve los datos del laboratorio al que pertenece el usuario,
+    incluyendo la URL absoluta del logo para que la app pueda descargarlo.
+    """
+    logo_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model  = Laboratorio
+        fields = [
+            'id',
+            'nombre_laboratorio',
+            'ciudad',
+            'estado',
+            'logo_url',
+        ]
+
+    def get_logo_url(self, obj):
+        request = self.context.get('request')
+        if obj.logo and request:
+            return request.build_absolute_uri(obj.logo.url)
+        return None

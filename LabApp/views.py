@@ -15,7 +15,9 @@ from .models import (
 from .serializers import (
     PacienteSerializer, LaboratorioSerializer, AnalisisSerializer,
     PlantillaSerializer, PropiedadPlantillaSerializer,
-    IntervaloReferenciaSerializer, UsuarioSerializer
+    IntervaloReferenciaSerializer, UsuarioSerializer,
+    LoginSerializer, UsuarioLoginResponseSerializer,
+    MiLaboratorioResponseSerializer,
 )
 from .utils.imprimir_pdf import generar_pdf_reporte
 
@@ -77,18 +79,125 @@ class UsuarioViewSet(viewsets.ModelViewSet):
 def inicio(request):
     return render(request, 'inicio.html', {})
 
-@api_view(['POST'])
-def login_api(request):
-    return Response({"ok": True})
-
-@api_view(['GET'])
-def mi_laboratorio_api(request):
-    return Response({"laboratorio": "demo"})
 
 def logout_fix(request):
     from django.contrib.auth import logout
     logout(request)
     return render(request, 'admin/login.html', {})
+
+
+# ======================================================
+# 🔹 LOGIN — App de escritorio Python/Tkinter
+# ======================================================
+
+@api_view(['POST'])
+def login_api(request):
+    """
+    POST /api/login/
+    Body: { "correo": "doctor@lab.com", "password": "1234" }
+
+    Respuesta 200:
+    {
+        "id": 3,
+        "nombre": "Dr. Juan Pérez",
+        "correo": "doctor@lab.com",
+        "rol": "TECNICO",
+        "puesto": "Químico Clínico",
+        "titulo_abreviado": "Q.C.",
+        "cedula_profesional": "12345678",
+        "is_active": true
+    }
+
+    Respuesta 401:
+    { "error": "Credenciales incorrectas" }
+    """
+    serializer = LoginSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(
+            {"error": "Datos inválidos", "detalle": serializer.errors},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    correo   = serializer.validated_data["correo"]
+    password = serializer.validated_data["password"]
+
+    # Buscar usuario activo por correo
+    try:
+        usuario = Usuario.objects.get(correo_electronico=correo, is_active=True)
+    except Usuario.DoesNotExist:
+        return Response(
+            {"error": "Credenciales incorrectas"},
+            status=status.HTTP_401_UNAUTHORIZED
+        )
+
+    # Verificar contraseña con el hasher de Django
+    if not usuario.check_password(password):
+        return Response(
+            {"error": "Credenciales incorrectas"},
+            status=status.HTTP_401_UNAUTHORIZED
+        )
+
+    # Devolver perfil completo
+    data = UsuarioLoginResponseSerializer(usuario).data
+    return Response(data, status=status.HTTP_200_OK)
+
+
+# ======================================================
+# 🔹 MI LABORATORIO — App de escritorio Python/Tkinter
+# ======================================================
+
+@api_view(['GET'])
+def mi_laboratorio_api(request):
+    """
+    GET /api/mi_laboratorio/?usuario_id=3
+
+    Devuelve el laboratorio al que pertenece el usuario.
+    La app usa esto para mostrar el logo en el menú principal.
+
+    Respuesta 200:
+    {
+        "id": 1,
+        "nombre_laboratorio": "Lab ICE Conriquez",
+        "ciudad": "Irapuato",
+        "estado": "Guanajuato",
+        "logo_url": "https://res.cloudinary.com/...logo.png"
+    }
+
+    Respuesta 404:
+    { "error": "Usuario no encontrado" }
+    { "error": "El usuario no tiene laboratorio asignado" }
+    """
+    usuario_id = request.query_params.get('usuario_id')
+
+    if not usuario_id:
+        return Response(
+            {"error": "Se requiere el parámetro usuario_id"},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # Verificar que el usuario existe
+    try:
+        usuario = Usuario.objects.get(id=usuario_id, is_active=True)
+    except Usuario.DoesNotExist:
+        return Response(
+            {"error": "Usuario no encontrado"},
+            status=status.HTTP_404_NOT_FOUND
+        )
+
+    # Obtener el primer laboratorio asociado al usuario (ManyToMany)
+    laboratorio = usuario.laboratorios.first()
+
+    if not laboratorio:
+        return Response(
+            {"error": "El usuario no tiene laboratorio asignado"},
+            status=status.HTTP_404_NOT_FOUND
+        )
+
+    data = MiLaboratorioResponseSerializer(
+        laboratorio,
+        context={'request': request}   # necesario para build_absolute_uri del logo
+    ).data
+    return Response(data, status=status.HTTP_200_OK)
 
 
 # ======================================================
@@ -142,23 +251,22 @@ def _construir_detalles_analisis(analisis):
             "unidad":                res.unidad,
             "valor_min":             valor_min,
             "valor_max":             valor_max,
-            # CORRECCIÓN: pasar las opciones cualitativas al PDF
             "opciones_cualitativas": propiedad.opciones_cualitativas if propiedad else "",
         })
 
     return {
-        "paciente":               paciente.nombre_completo,
-        "edad":                   paciente.edad,
-        "sexo":                   paciente.sexo,
-        "tipo":                   analisis.plantilla.titulo,
-        "tipo_formato_raw":       analisis.plantilla.tipo_formato,
-        "fecha_muestra":          analisis.fecha_analisis,
-        "fecha_analisis":         analisis.fecha_analisis,
-        "resultados":             resultados,
-        "laboratorio_nombre":     laboratorio.nombre_laboratorio if laboratorio else "",
-        "laboratorio_logo":       logo_bytes,
-        "imagen_blob1":           imagen_bytes1,
-        "imagen_blob2":           imagen_bytes2,
+        "paciente":                    paciente.nombre_completo,
+        "edad":                        paciente.edad,
+        "sexo":                        paciente.sexo,
+        "tipo":                        analisis.plantilla.titulo,
+        "tipo_formato_raw":            analisis.plantilla.tipo_formato,
+        "fecha_muestra":               analisis.fecha_analisis,
+        "fecha_analisis":              analisis.fecha_analisis,
+        "resultados":                  resultados,
+        "laboratorio_nombre":          laboratorio.nombre_laboratorio if laboratorio else "",
+        "laboratorio_logo":            logo_bytes,
+        "imagen_blob1":                imagen_bytes1,
+        "imagen_blob2":                imagen_bytes2,
         "usuario_generador":           quimico.nombre               if quimico else "",
         "quimico_puesto":              quimico.puesto               if quimico else "",
         "quimico_titulo":              quimico.titulo_abreviado      if quimico else "",
