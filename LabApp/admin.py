@@ -3,14 +3,17 @@ from django import forms
 from django.utils.html import format_html
 from django.db.models import Q
 from django.utils.safestring import mark_safe
+
 from .models import (
-    Usuario, Laboratorio, Paciente, LoincCode, Analisis,
-    ResultadoAnalisis, Plantilla, PropiedadPlantilla, IntervaloReferencia
+    Usuario, Laboratorio, Paciente, LoincCode,
+    Propiedad, IntervaloReferencia, Plantilla,
+    Analisis, ResultadoAnalisis,
 )
 
-# ======================================================
-# 1. CONFIGURACIÓN DE FORMULARIOS Y UNIDADES
-# ======================================================
+
+# =============================================================================
+# 1. LISTAS DE SUGERENCIAS
+# =============================================================================
 
 UNIDADES_SUGERIDAS = [
     'g/dL', '%',
@@ -26,245 +29,282 @@ OPCIONES_CUALITATIVAS_SUGERIDAS = [
     'LEVE,MODERADO,SEVERO',
 ]
 
+TIPOS_MUESTRA_SUGERIDOS = [
+    'Sangre total con EDTA',
+    'Suero',
+    'Plasma con citrato',
+    'Orina de 24h',
+    'Orina aleatoria',
+    'Líquido cefalorraquídeo',
+    'Heces',
+    'Exudado faríngeo',
+]
 
-class UnidadConBotonWidget(forms.TextInput):
-    def __init__(self, sugerencias, *args, **kwargs):
+METODOS_SUGERIDOS = [
+    'Impedancia eléctrica y microscópica',
+    'Espectrofotometría',
+    'Aglutinación',
+    'Inmunoturbidimetría',
+    'Electroquimioluminiscencia',
+    'Fluorescencia',
+    'Cultivo microbiológico',
+    'PCR',
+]
+
+
+# =============================================================================
+# 2. WIDGET BASE CON DROPDOWN DE SUGERENCIAS
+# =============================================================================
+
+# CSS y JS se inyectan una sola vez gracias al guard de ID único en el DOM.
+# Cada widget genera su propio ID único basado en el atributo `name` del campo,
+# por lo que múltiples instancias del mismo widget en la página no colisionan.
+
+class SugerenciasDropdownWidget(forms.TextInput):
+    """
+    Widget TextInput con un botón 📋 que despliega un dropdown de sugerencias.
+    Al hacer clic en una sugerencia, se escribe en el input automáticamente.
+    """
+
+    def __init__(self, sugerencias, placeholder='', input_width='240px', *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.sugerencias = sugerencias
+        self.sugerencias   = sugerencias
+        self.placeholder   = placeholder
+        self.input_width   = input_width
 
     def render(self, name, value, attrs=None, renderer=None):
         attrs = attrs or {}
         attrs['autocomplete'] = 'off'
-        attrs['placeholder'] = 'Ej: g/dL, mg/dL...'
-        attrs['style'] = 'width: 220px;'
+        attrs['placeholder']  = self.placeholder
+        attrs['style']        = f'width:{self.input_width};vertical-align:middle;'
 
+        # Generamos un ID de dropdown único por instancia de widget
+        # (usando el name del campo para garantizar unicidad en la página)
+        dropdown_id = f'dd_{name}'
+
+        # Renderizamos el <input> estándar de Django
         input_html = super().render(name, value, attrs, renderer)
 
-        opciones_html = ''.join(
-            f'<div class="unidad-opcion" onclick="elegirUnidad(this, \'{name}\')" '
-            f'style="padding:6px 12px;cursor:pointer;white-space:nowrap;color:#212529;background:#ffffff;">'
-            f'{u}</div>'
-            for u in self.sugerencias
+        # Construimos los ítems del dropdown
+        items_html = ''.join(
+            f'<div class="sdw-item" onclick="sdwElegir(\'{dropdown_id}\', this)">'
+            f'{item}'
+            f'</div>'
+            for item in self.sugerencias
         )
 
+        # HTML completo: CSS (una sola vez) + estructura del widget
         html = f"""
-        <span style="display:inline-flex;align-items:center;gap:4px;position:relative;">
-            {input_html}
-            <button type="button"
-                title="Ver sugerencias rápidas"
-                onclick="toggleUnidadDropdown(this)"
-                style="
-                    height:30px;padding:0 8px;cursor:pointer;
-                    border:1px solid #ccc;border-radius:4px;
-                    background:#f8f8f8;font-size:14px;
-                    vertical-align:middle;
-                ">📋</button>
-            <div class="unidad-dropdown" style="
-                display:none;position:absolute;top:100%;left:0;
-                background:#ffffff;border:1px solid #ccc;border-radius:4px;color:#212529;
-                box-shadow:0 4px 12px rgba(0,0,0,0.15);
-                z-index:9999;min-width:160px;
-            ">
-                {opciones_html}
-            </div>
-        </span>
-        <script>
-        (function() {{
-            if (window._unidadWidgetInit) return;
-            window._unidadWidgetInit = true;
+<!-- SDW CSS – se inyecta una sola vez gracias al guard -->
+<style id="sdw-style" data-sdw-once>
+  .sdw-wrap {{
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    vertical-align: middle;
+  }}
+  .sdw-btn {{
+    height: 30px;
+    padding: 0 8px;
+    font-size: 15px;
+    cursor: pointer;
+    border: 1px solid #bbb;
+    border-radius: 4px;
+    background: #f5f5f5;
+    vertical-align: middle;
+    line-height: 1;
+    transition: background 0.15s, border-color 0.15s;
+    user-select: none;
+  }}
+  .sdw-btn:hover {{
+    background: #e0e8ff;
+    border-color: #7a9fe0;
+  }}
+  /* position:fixed → escapa de cualquier overflow:hidden del fieldset de Django Admin */
+  .sdw-menu {{
+    display: none;
+    position: fixed;
+    z-index: 999999;
+    background: #fff;
+    border: 1px solid #bbb;
+    border-radius: 6px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.22);
+    min-width: 210px;
+    max-height: 260px;
+    overflow-y: auto;
+  }}
+  .sdw-item {{
+    padding: 8px 14px;
+    font-size: 13px;
+    cursor: pointer;
+    color: #222;
+    white-space: nowrap;
+    transition: background 0.1s;
+  }}
+  .sdw-item:hover {{
+    background: #e8f0fe;
+  }}
+</style>
 
-            function toggleUnidadDropdown(btn) {{
-                var dropdown = btn.nextElementSibling;
-                var isOpen = dropdown.style.display === 'block';
-                document.querySelectorAll('.unidad-dropdown').forEach(function(d) {{
-                    d.style.display = 'none';
-                }});
-                dropdown.style.display = isOpen ? 'none' : 'block';
-            }}
+<!-- SDW JS – se inyecta una sola vez gracias al guard -->
+<script>
+(function() {{
+  if (window._sdwReady) return;
+  window._sdwReady = true;
 
-            function elegirUnidad(opcion, fieldName) {{
-                var dropdown = opcion.closest('.unidad-dropdown');
-                var container = dropdown ? dropdown.parentElement : null;
-                var input = container ? container.querySelector('input') : null;
-                if (input) input.value = opcion.textContent.trim();
-                if (dropdown) dropdown.style.display = 'none';
-            }}
+  /**
+   * Abre/cierra el dropdown usando position:fixed para escapar de
+   * cualquier contenedor con overflow:hidden (fieldsets de Django Admin).
+   * Calcula si hay más espacio arriba o abajo del botón y posiciona ahí.
+   */
+  window.sdwToggle = function(btn, menuId) {{
+    var menu = document.getElementById(menuId);
+    if (!menu) return;
+    var isOpen = menu.style.display === 'block';
 
-            document.addEventListener('click', function(e) {{
-                if (!e.target.closest('.unidad-dropdown') && !e.target.closest('button[title="Ver sugerencias rápidas"]')) {{
-                    document.querySelectorAll('.unidad-dropdown').forEach(function(d) {{
-                        d.style.display = 'none';
-                    }});
-                }}
-            }});
+    // Cerrar todos los menús abiertos
+    document.querySelectorAll('.sdw-menu').forEach(function(m) {{
+      m.style.display = 'none';
+    }});
 
-            document.addEventListener('mouseover', function(e) {{
-                if (e.target.classList.contains('unidad-opcion')) {{
-                    e.target.style.background = '#e8f0fe'; e.target.style.color = '#212529';
-                }}
-            }});
-            document.addEventListener('mouseout', function(e) {{
-                if (e.target.classList.contains('unidad-opcion')) {{
-                    e.target.style.background = '#ffffff'; e.target.style.color = '#212529';
-                }}
-            }});
+    if (!isOpen) {{
+      // Posicionar con fixed usando las coordenadas reales del botón
+      var rect       = btn.getBoundingClientRect();
+      var menuHeight = 260; // max-height del menú
+      var spaceBelow = window.innerHeight - rect.bottom;
+      var spaceAbove = rect.top;
 
-            window.toggleUnidadDropdown = toggleUnidadDropdown;
-            window.elegirUnidad = elegirUnidad;
-        }})();
-        </script>
-        """
+      menu.style.display = 'block';
+      var realHeight = Math.min(menu.scrollHeight, menuHeight);
+      menu.style.display = 'none';
+
+      if (spaceAbove >= realHeight || spaceAbove > spaceBelow) {{
+        // Abrir hacia ARRIBA
+        menu.style.top    = (rect.top - realHeight - 4) + 'px';
+      }} else {{
+        // Abrir hacia ABAJO
+        menu.style.top    = (rect.bottom + 4) + 'px';
+      }}
+      menu.style.left   = rect.left + 'px';
+      menu.style.width  = Math.max(rect.width + 36, 210) + 'px';
+      menu.style.display = 'block';
+    }}
+  }};
+
+  // Reposicionar al hacer scroll o resize (por si el usuario mueve la página)
+  ['scroll','resize'].forEach(function(ev) {{
+    window.addEventListener(ev, function() {{
+      document.querySelectorAll('.sdw-menu').forEach(function(m) {{
+        m.style.display = 'none';
+      }});
+    }}, true);
+  }});
+
+  // Copia el texto del ítem al input y cierra el menú
+  window.sdwElegir = function(menuId, item) {{
+    var menu  = document.getElementById(menuId);
+    if (!menu) return;
+    // El input está en el DOM aparte; lo buscamos por data-for
+    var inputId = menu.dataset.for;
+    var input   = inputId ? document.getElementById(inputId) : null;
+    if (input) {{
+      input.value = item.textContent.trim();
+      input.dispatchEvent(new Event('input',  {{bubbles: true}}));
+      input.dispatchEvent(new Event('change', {{bubbles: true}}));
+    }}
+    menu.style.display = 'none';
+  }};
+
+  // Cierra al hacer clic fuera
+  document.addEventListener('click', function(e) {{
+    if (!e.target.closest('.sdw-btn') && !e.target.closest('.sdw-menu')) {{
+      document.querySelectorAll('.sdw-menu').forEach(function(m) {{
+        m.style.display = 'none';
+      }});
+    }}
+  }});
+}})();
+</script>
+
+<!-- El menú va al final del <body> para evitar todo clipping -->
+<span class="sdw-wrap">
+  {input_html}
+  <button type="button"
+          class="sdw-btn"
+          title="Ver sugerencias"
+          onclick="sdwToggle(this, '{dropdown_id}')">📋</button>
+</span>
+<div id="{dropdown_id}" class="sdw-menu" data-for="id_{name}">
+  {items_html}
+</div>
+"""
         return mark_safe(html)
 
 
-class OpcionesCualitativasWidget(forms.TextInput):
-    def __init__(self, sugerencias, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.sugerencias = sugerencias
+# =============================================================================
+# 3. FORMULARIOS
+# =============================================================================
 
-    def render(self, name, value, attrs=None, renderer=None):
-        attrs = attrs or {}
-        attrs['autocomplete'] = 'off'
-        attrs['placeholder'] = 'Ej: POSITIVO,NEGATIVO'
-        attrs['style'] = 'width: 260px;'
-
-        input_html = super().render(name, value, attrs, renderer)
-
-        opciones_html = ''.join(
-            f'<div class="cual-opcion" '
-            f'onclick="elegirOpcionCualitativa(this, \'{name}\')" '
-            f'style="padding:6px 12px;cursor:pointer;white-space:nowrap;color:#212529;background:#ffffff;">'
-            f'{u}</div>'
-            for u in self.sugerencias
-        )
-
-        html = f"""
-        <span style="display:inline-flex;align-items:center;gap:4px;position:relative;">
-            {input_html}
-            <button type="button"
-                title="Ver opciones predefinidas"
-                onclick="toggleCualDropdown(this)"
-                style="
-                    height:30px;padding:0 8px;cursor:pointer;
-                    border:1px solid #ccc;border-radius:4px;
-                    background:#f8f8f8;font-size:14px;
-                    vertical-align:middle;
-                ">📋</button>
-            <div class="cual-dropdown" style="
-                display:none;position:absolute;top:100%;left:0;
-                background:#ffffff;border:1px solid #ccc;border-radius:4px;color:#212529;
-                box-shadow:0 4px 12px rgba(0,0,0,0.15);
-                z-index:9999;min-width:220px;
-            ">
-                {opciones_html}
-            </div>
-        </span>
-        <script>
-        (function() {{
-            if (window._cualWidgetInit) return;
-            window._cualWidgetInit = true;
-
-            function toggleCualDropdown(btn) {{
-                var dropdown = btn.nextElementSibling;
-                var isOpen = dropdown.style.display === 'block';
-                document.querySelectorAll('.cual-dropdown').forEach(function(d) {{
-                    d.style.display = 'none';
-                }});
-                dropdown.style.display = isOpen ? 'none' : 'block';
-            }}
-
-            function elegirOpcionCualitativa(opcion, fieldName) {{
-                var dropdown = opcion.closest('.cual-dropdown');
-                var container = dropdown ? dropdown.parentElement : null;
-                var input = container ? container.querySelector('input') : null;
-                if (input) input.value = opcion.textContent.trim();
-                if (dropdown) dropdown.style.display = 'none';
-            }}
-
-            document.addEventListener('click', function(e) {{
-                if (!e.target.closest('.cual-dropdown') && !e.target.closest('button[title="Ver opciones predefinidas"]')) {{
-                    document.querySelectorAll('.cual-dropdown').forEach(function(d) {{
-                        d.style.display = 'none';
-                    }});
-                }}
-            }});
-
-            document.addEventListener('mouseover', function(e) {{
-                if (e.target.classList.contains('cual-opcion')) {{
-                    e.target.style.background = '#e8f0fe';
-                }}
-            }});
-            document.addEventListener('mouseout', function(e) {{
-                if (e.target.classList.contains('cual-opcion')) {{
-                    e.target.style.background = '#ffffff';
-                }}
-            }});
-
-            window.toggleCualDropdown = toggleCualDropdown;
-            window.elegirOpcionCualitativa = elegirOpcionCualitativa;
-        }})();
-        </script>
-        """
-        return mark_safe(html)
-
-
-class PropiedadPlantillaForm(forms.ModelForm):
+class PropiedadForm(forms.ModelForm):
     unidad = forms.CharField(
         required=False,
-        widget=UnidadConBotonWidget(sugerencias=UNIDADES_SUGERIDAS),
+        widget=SugerenciasDropdownWidget(
+            sugerencias=UNIDADES_SUGERIDAS,
+            placeholder='Ej: g/dL, mg/dL...',
+            input_width='220px',
+        ),
     )
     opciones_cualitativas = forms.CharField(
         required=False,
-        widget=OpcionesCualitativasWidget(sugerencias=OPCIONES_CUALITATIVAS_SUGERIDAS),
+        widget=SugerenciasDropdownWidget(
+            sugerencias=OPCIONES_CUALITATIVAS_SUGERIDAS,
+            placeholder='Ej: POSITIVO,NEGATIVO',
+            input_width='260px',
+        ),
         help_text='Opciones separadas por coma. Ej: POSITIVO,NEGATIVO',
     )
 
     class Meta:
-        model = PropiedadPlantilla
+        model  = Propiedad
         fields = '__all__'
 
     class Media:
         js = ('admin/js/propiedad_tipo_toggle.js',)
 
 
-# ======================================================
-# 2. FORMULARIO DE ANÁLISIS CON JS
-# ======================================================
-
 class AnalisisAdminForm(forms.ModelForm):
+    tipo_muestra = forms.CharField(
+        required=False,
+        widget=SugerenciasDropdownWidget(
+            sugerencias=TIPOS_MUESTRA_SUGERIDOS,
+            placeholder='Ej: Sangre total con EDTA, Suero...',
+            input_width='260px',
+        ),
+        label='Tipo de muestra',
+        help_text='Ej: Sangre total con EDTA, Suero, Orina de 24h',
+    )
+    metodo = forms.CharField(
+        required=False,
+        widget=SugerenciasDropdownWidget(
+            sugerencias=METODOS_SUGERIDOS,
+            placeholder='Ej: Impedancia eléctrica, Aglutinación...',
+            input_width='260px',
+        ),
+        label='Método',
+        help_text='Ej: Impedancia eléctrica y microscópica, Espectrofotometría',
+    )
+
     class Meta:
-        model = Analisis
+        model  = Analisis
         fields = '__all__'
 
     class Media:
         js = ('admin/js/analisis_imagenes_toggle.js',)
 
 
-# ======================================================
-# 3. FORMULARIO DINÁMICO PARA RESULTADO ANÁLISIS
-# ======================================================
-
 class ResultadoAnalisisForm(forms.ModelForm):
-    """
-    Formulario para ResultadoAnalisis dentro del inline de AnalisisAdmin.
-
-    Comportamiento según el tipo de propiedad asociada:
-
-    CUALITATIVO:
-      - 'valor'  → <select> nativo con las opciones definidas en PropiedadPlantilla.
-      - 'unidad' → campo deshabilitado (disabled + readonly), ya que los cualitativos
-                   no tienen unidad de medida.
-
-    CUANTITATIVO:
-      - 'valor'  → input de texto libre normal.
-      - 'unidad' → input de texto normal, editable.
-
-    Como desde el admin siempre se editan análisis YA guardados (la señal
-    post_save usa skip_signal=True y los ResultadoAnalisis se crean desde
-    la API), _get_propiedad() siempre trabaja con instance.pk (Caso 1).
-    """
     class Meta:
-        model = ResultadoAnalisis
+        model  = ResultadoAnalisis
         fields = '__all__'
 
     def __init__(self, *args, **kwargs):
@@ -272,109 +312,65 @@ class ResultadoAnalisisForm(forms.ModelForm):
         propiedad = self._get_propiedad()
 
         if propiedad and propiedad.tipo == 'CUALITATIVO':
-            # --- Campo 'valor': convertir a ChoiceField con las opciones de la propiedad ---
             opciones = propiedad.get_opciones_lista()
             if opciones:
                 choices = [('', '---------')] + [(op, op) for op in opciones]
                 self.fields['valor'] = forms.ChoiceField(
-                    choices=choices,
-                    required=False,
-                    label='Valor',
+                    choices=choices, required=False, label='Valor',
                 )
-
-            # --- Campo 'unidad': deshabilitar visualmente y mostrar "N/A" ---
             self.fields['unidad'].widget.attrs.update({
                 'disabled': True,
                 'readonly': True,
                 'style': (
-                    'background-color:#f0f0f0;'
-                    'color:#999;'
-                    'cursor:not-allowed;'
-                    'border:1px solid #ddd;'
-                    'border-radius:4px;'
-                    'padding:2px 6px;'
+                    'background-color:#f0f0f0;color:#999;cursor:not-allowed;'
+                    'border:1px solid #ddd;border-radius:4px;padding:2px 6px;'
                 ),
                 'title': 'No aplica para propiedades cualitativas',
             })
-            # Mostrar "N/A" como valor visual (disabled no lo envía al servidor)
             self.initial['unidad'] = 'N/A'
 
     def _get_propiedad(self):
-        """
-        Resuelve la PropiedadPlantilla asociada a este resultado.
-        Siempre trabaja desde la instancia guardada (instance.pk).
-        """
         if self.instance and self.instance.pk:
             try:
-                return self.instance.analisis.plantilla.propiedades.filter(
-                    nombre_propiedad=self.instance.nombre_propiedad
-                ).first()
+                return self.instance.propiedad
             except Exception:
                 return None
         return None
 
 
-# ======================================================
+# =============================================================================
 # 4. INLINES
-# ======================================================
+# =============================================================================
 
 class IntervaloReferenciaInline(admin.TabularInline):
-    model = IntervaloReferencia
-    extra = 1
+    model  = IntervaloReferencia
+    extra  = 1
     fields = ('edad_min_meses', 'edad_max_meses', 'sexo', 'valor_min', 'valor_max')
 
 
-class PropiedadPlantillaInline(admin.TabularInline):
-    model = PropiedadPlantilla
-    form = PropiedadPlantillaForm
-    fields = ('nombre_propiedad', 'tipo', 'unidad', 'opciones_cualitativas', 'loinc_code')
-    autocomplete_fields = ('loinc_code',)
-    extra = 1
-
-    def get_extra(self, request, obj=None, **kwargs):
-        if obj:
-            return 0
-        return 1
-
-    def has_add_permission(self, request, obj=None):
-        if obj is not None:
-            return False
-        return True
-
-    def has_change_permission(self, request, obj=None):
-        if obj is not None:
-            return False
-        return True
-
-    def has_delete_permission(self, request, obj=None):
-        if obj is not None:
-            return False
-        return True
-
-
 class ResultadoAnalisisInline(admin.TabularInline):
-    model = ResultadoAnalisis
-    form = ResultadoAnalisisForm
-    extra = 0
+    model      = ResultadoAnalisis
+    form       = ResultadoAnalisisForm
+    extra      = 0
     can_delete = True
-    max_num = 0
 
-    fields = ('nombre_propiedad', 'valor', 'unidad', 'intervalo_referencia', 'valor_coloreado')
-    readonly_fields = ('intervalo_referencia', 'valor_coloreado')
+    fields          = ('propiedad', 'valor', 'unidad', 'col_intervalo_referencia', 'col_valor_coloreado')
+    readonly_fields = ('propiedad', 'col_intervalo_referencia', 'col_valor_coloreado')
+
+    def get_max_num(self, request, obj=None, **kwargs):
+        if obj is None:
+            return None
+        return obj.resultados.count()
 
     def has_add_permission(self, request, obj=None):
-        if obj is not None:
-            return False
-        return True
+        return obj is None
 
-    def intervalo_referencia(self, obj):
+    def col_intervalo_referencia(self, obj):
         if not obj.pk or not obj.analisis or not obj.analisis.paciente:
             return "-"
         paciente   = obj.analisis.paciente
         edad_meses = paciente.edad_en_meses
-        propiedad  = obj.analisis.plantilla.propiedades.filter(
-            nombre_propiedad=obj.nombre_propiedad
-        ).first()
+        propiedad  = obj.propiedad
         if not propiedad:
             return "-"
         if propiedad.tipo == 'CUALITATIVO':
@@ -390,22 +386,16 @@ class ResultadoAnalisisInline(admin.TabularInline):
         if intervalo:
             return f"{intervalo.valor_min} - {intervalo.valor_max} {obj.unidad or ''}"
         return "-"
-    intervalo_referencia.short_description = "Referencia / Opciones"
+    col_intervalo_referencia.short_description = "Referencia / Opciones"
 
-    def valor_coloreado(self, obj):
+    def col_valor_coloreado(self, obj):
         if not obj.pk or not obj.analisis or not obj.analisis.paciente or not obj.valor:
             return obj.valor or ""
         paciente   = obj.analisis.paciente
         edad_meses = paciente.edad_en_meses
-        propiedad  = obj.analisis.plantilla.propiedades.filter(
-            nombre_propiedad=obj.nombre_propiedad
-        ).first()
-        if not propiedad:
+        propiedad  = obj.propiedad
+        if not propiedad or propiedad.tipo == 'CUALITATIVO':
             return obj.valor
-
-        if propiedad.tipo == 'CUALITATIVO':
-            return obj.valor
-
         intervalo = propiedad.intervalos.filter(
             Q(sexo=paciente.sexo) | Q(sexo="AMBOS")
         ).filter(
@@ -425,18 +415,18 @@ class ResultadoAnalisisInline(admin.TabularInline):
             except ValueError:
                 return obj.valor
         return obj.valor
-    valor_coloreado.short_description = "Estado del Valor"
+    col_valor_coloreado.short_description = "Estado del Valor"
 
 
-# ======================================================
+# =============================================================================
 # 5. REGISTRO DE MODELOS
-# ======================================================
+# =============================================================================
 
 @admin.register(Usuario)
 class UsuarioAdmin(admin.ModelAdmin):
-    list_display = ('id', 'nombre', 'correo_electronico', 'rol', 'puesto', 'cedula_profesional', 'is_active')
-    list_filter = ('rol', 'is_active')
-    search_fields = ('nombre', 'correo_electronico', 'cedula_profesional')
+    list_display      = ('id', 'nombre', 'correo_electronico', 'rol', 'puesto', 'cedula_profesional', 'is_active')
+    list_filter       = ('rol', 'is_active')
+    search_fields     = ('nombre', 'correo_electronico', 'cedula_profesional')
     filter_horizontal = ('laboratorios',)
 
     def get_form(self, request, obj=None, **kwargs):
@@ -452,40 +442,71 @@ class UsuarioAdmin(admin.ModelAdmin):
 
 @admin.register(Laboratorio)
 class LaboratorioAdmin(admin.ModelAdmin):
-    list_display = ('nombre_laboratorio', 'ciudad', 'responsable_sanitario_principal')
+    list_display  = ('nombre_laboratorio', 'ciudad', 'responsable_sanitario_principal')
     search_fields = ('nombre_laboratorio', 'ciudad')
 
 
 @admin.register(Paciente)
 class PacienteAdmin(admin.ModelAdmin):
     search_fields = ('nombre', 'apellido_paterno', 'apellido_materno')
-    list_display = ('id', 'nombre_completo', 'sexo', 'get_edad', 'laboratorio')
-    list_filter = ('sexo', 'laboratorio')
+    list_display  = ('id', 'nombre_completo', 'sexo', 'get_edad', 'laboratorio')
+    list_filter   = ('sexo', 'laboratorio')
 
     def get_edad(self, obj):
-        años = obj.edad
+        años  = obj.edad
         meses = obj.edad_en_meses
-        if años < 2:
-            return f"{meses} meses"
-        return f"{años} años"
+        return f"{meses} meses" if años < 2 else f"{años} años"
     get_edad.short_description = "Edad"
+
+
+@admin.register(Propiedad)
+class PropiedadAdmin(admin.ModelAdmin):
+    form                = PropiedadForm
+    list_display        = ('nombre_propiedad', 'tipo', 'unidad', 'get_plantillas')
+    list_filter         = ('tipo',)
+    search_fields       = ('nombre_propiedad',)
+    autocomplete_fields = ('loinc_code',)
+    inlines             = [IntervaloReferenciaInline]
+
+    def get_readonly_fields(self, request, obj=None):
+        return ('tipo',) if obj else ()
+
+    def get_plantillas(self, obj):
+        nombres = obj.plantillas.values_list('titulo', flat=True)
+        return ', '.join(nombres) if nombres else '—'
+    get_plantillas.short_description = "Usada en plantillas"
+
+    class Media:
+        js = ('admin/js/propiedad_tipo_toggle.js', 'admin/js/intervalo_toggle.js')
+
+
+@admin.register(Plantilla)
+class PlantillaAdmin(admin.ModelAdmin):
+    search_fields     = ('titulo',)
+    list_display      = ('titulo', 'tipo_formato', 'get_num_propiedades', 'fecha_modificacion')
+    filter_horizontal = ('propiedades',)
+
+    def get_num_propiedades(self, obj):
+        return obj.propiedades.count()
+    get_num_propiedades.short_description = "N° Propiedades"
 
 
 @admin.register(Analisis)
 class AnalisisAdmin(admin.ModelAdmin):
-    form = AnalisisAdminForm
-    list_display = ('id', 'get_paciente', 'get_plantilla', 'status', 'creado_por', 'fecha_analisis', 'link_pdf')
-    list_filter = ('status', 'plantilla', 'fecha_analisis')
+    form          = AnalisisAdminForm
+    list_display  = ('id', 'get_paciente', 'get_plantilla', 'status', 'creado_por', 'fecha_analisis', 'link_pdf')
+    list_filter   = ('status', 'plantilla', 'fecha_analisis')
     search_fields = ('paciente__nombre', 'paciente__apellido_paterno', 'plantilla__titulo')
     autocomplete_fields = ('paciente', 'plantilla', 'creado_por')
-    inlines = [ResultadoAnalisisInline]
+    inlines       = [ResultadoAnalisisInline]
 
     fieldsets = (
         ('Datos del Análisis', {
-            'fields': ('paciente', 'plantilla', 'creado_por', 'status')
+            'fields': ('paciente', 'plantilla', 'creado_por', 'status',
+                       'tipo_muestra', 'metodo'),
         }),
         ('Fechas y Horas', {
-            'fields': ('fecha_muestra', 'hora_toma', 'hora_impresion')
+            'fields': ('fecha_muestra', 'hora_toma', 'hora_impresion'),
         }),
         ('Imágenes del Análisis', {
             'fields': ('imagen_resultado1', 'imagen_resultado2'),
@@ -498,23 +519,123 @@ class AnalisisAdmin(admin.ModelAdmin):
     )
 
     def get_readonly_fields(self, request, obj=None):
-        if obj:
-            return ('paciente', 'plantilla')
-        return ()
+        return ('paciente', 'plantilla') if obj else ()
 
     def save_model(self, request, obj, form, change):
         obj.skip_signal = True
         super().save_model(request, obj, form, change)
 
+        if not change:
+            ids_extra_raw = request.POST.get('_propiedades_extra_ids', '')
+            ids_extra = [
+                int(i) for i in ids_extra_raw.split(',')
+                if i.strip().isdigit()
+            ]
+
+            nombres_excluidas_raw = request.POST.get('_propiedades_excluidas_nombres', '')
+            nombres_excluidas = [
+                n.strip() for n in nombres_excluidas_raw.split(',')
+                if n.strip()
+            ]
+
+            if ids_extra:
+                obj.propiedades_extra.set(
+                    Propiedad.objects.filter(id__in=ids_extra)
+                )
+
+            if nombres_excluidas:
+                obj.propiedades_excluidas.set(
+                    Propiedad.objects.filter(nombre_propiedad__in=nombres_excluidas)
+                )
+
+            paciente   = obj.paciente
+            edad_meses = paciente.edad_en_meses
+
+            for propiedad in obj.get_propiedades_efectivas():
+                total_intervalos = propiedad.intervalos.count()
+                if total_intervalos == 0:
+                    crear = True
+                else:
+                    crear = propiedad.intervalos.filter(
+                        Q(sexo=paciente.sexo) | Q(sexo="AMBOS")
+                    ).filter(
+                        Q(edad_min_meses__isnull=True) | Q(edad_min_meses__lte=edad_meses)
+                    ).filter(
+                        Q(edad_max_meses__isnull=True) | Q(edad_max_meses__gte=edad_meses)
+                    ).exists()
+
+                if crear:
+                    ResultadoAnalisis.objects.get_or_create(
+                        analisis=obj,
+                        propiedad=propiedad,
+                        defaults={
+                            'loinc_code': propiedad.loinc_code,
+                            'valor':      '',
+                            'unidad':     propiedad.unidad,
+                        }
+                    )
+
+    def save_formset(self, request, form, formset, change):
+        if formset.model.__name__ == 'ResultadoAnalisis' and not change:
+            analisis    = form.instance
+            total_forms = int(request.POST.get('resultados-TOTAL_FORMS', 0))
+
+            for i in range(total_forms):
+                prefix = f'resultados-{i}'
+
+                propiedad_id_raw = request.POST.get(f'{prefix}-propiedad', '').strip()
+                if not propiedad_id_raw or not propiedad_id_raw.isdigit():
+                    continue
+
+                propiedad_id = int(propiedad_id_raw)
+                raw_valor    = request.POST.get(f'{prefix}-valor', '').strip()
+                unidad       = request.POST.get(f'{prefix}-unidad', '').strip()
+
+                try:
+                    propiedad_obj = Propiedad.objects.get(pk=propiedad_id)
+                except Propiedad.DoesNotExist:
+                    continue
+
+                instancia, _ = ResultadoAnalisis.objects.get_or_create(
+                    analisis=analisis,
+                    propiedad=propiedad_obj,
+                    defaults={
+                        'loinc_code': propiedad_obj.loinc_code,
+                        'valor':      raw_valor,
+                        'unidad':     unidad if unidad and unidad != 'N/A' else propiedad_obj.unidad,
+                    }
+                )
+
+                instancia.valor = raw_valor
+                if unidad and unidad != 'N/A':
+                    instancia.unidad = unidad
+                instancia.save()
+
+            formset.new_objects     = []
+            formset.changed_objects = []
+            formset.deleted_objects = []
+            return
+
+        super().save_formset(request, form, formset, change)
+
+    def response_add(self, request, obj, post_url_continue=None):
+        from django.http import HttpResponseRedirect
+        from django.urls import reverse
+        return HttpResponseRedirect(
+            reverse('admin:LabApp_analisis_change', args=[obj.pk])
+        )
+
     def render_change_form(self, request, context, add=False, change=False, form_url='', obj=None):
         if add:
             self.message_user(
                 request,
-                'Atención: Una vez guardado el análisis, el Paciente y el Tipo de Análisis '
-                '(Plantilla) no podrán modificarse. Verifique bien antes de guardar.',
+                'Atención: Una vez guardado el análisis, el Paciente y la Plantilla '
+                'no podrán modificarse. Verifique bien antes de guardar.',
                 level='warning'
             )
-        return super().render_change_form(request, context, add=add, change=change, form_url=form_url, obj=obj)
+        return super().render_change_form(
+            request, context, add=add, change=change, form_url=form_url, obj=obj
+        )
 
     def get_paciente(self, obj):
         return obj.paciente.nombre_completo
@@ -536,30 +657,7 @@ class AnalisisAdmin(admin.ModelAdmin):
     link_pdf.short_description = "Reporte"
 
 
-@admin.register(Plantilla)
-class PlantillaAdmin(admin.ModelAdmin):
-    search_fields = ('titulo',)
-    list_display = ('titulo', 'tipo_formato', 'fecha_modificacion')
-    inlines = [PropiedadPlantillaInline]
-
-
 @admin.register(LoincCode)
 class LoincCodeAdmin(admin.ModelAdmin):
     search_fields = ('loinc_num', 'shortname', 'component')
-    list_display = ('loinc_num', 'shortname', 'component', 'system')
-
-
-@admin.register(PropiedadPlantilla)
-class PropiedadPlantillaAdmin(admin.ModelAdmin):
-    form = PropiedadPlantillaForm
-    list_display = ('nombre_propiedad', 'plantilla', 'tipo', 'unidad')
-    autocomplete_fields = ('loinc_code', 'plantilla')
-    inlines = [IntervaloReferenciaInline]
-
-    def get_readonly_fields(self, request, obj=None):
-        if obj:
-            return ('tipo',)
-        return ()
-
-    class Media:
-        js = ('admin/js/intervalo_toggle.js',)
+    list_display  = ('loinc_num', 'shortname', 'component', 'system')

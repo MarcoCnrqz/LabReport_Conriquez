@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from .models import (
     Paciente, Laboratorio, Analisis, ResultadoAnalisis,
-    Plantilla, PropiedadPlantilla, IntervaloReferencia, LoincCode, Usuario
+    Plantilla, Propiedad, IntervaloReferencia, LoincCode, Usuario
 )
 import base64
 import uuid
@@ -32,16 +32,18 @@ class IntervaloReferenciaSerializer(serializers.ModelSerializer):
         fields = '__all__'
         read_only_fields = ('sincronizado', 'fecha_modificacion', 'propiedad')
 
-class PropiedadPlantillaSerializer(serializers.ModelSerializer):
+
+class PropiedadSerializer(serializers.ModelSerializer):
     intervalos = IntervaloReferenciaSerializer(many=True, required=False)
+
     class Meta:
-        model = PropiedadPlantilla
+        model = Propiedad
         fields = '__all__'
         read_only_fields = ('sincronizado', 'fecha_modificacion')
 
     def create(self, validated_data):
         intervalos_data = validated_data.pop('intervalos', [])
-        propiedad = PropiedadPlantilla.objects.create(**validated_data)
+        propiedad = Propiedad.objects.create(**validated_data)
         for int_data in intervalos_data:
             IntervaloReferencia.objects.create(propiedad=propiedad, **int_data)
         return propiedad
@@ -49,8 +51,10 @@ class PropiedadPlantillaSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         intervalos_data = validated_data.pop('intervalos', None)
         instance.nombre_propiedad = validated_data.get('nombre_propiedad', instance.nombre_propiedad)
-        instance.unidad = validated_data.get('unidad', instance.unidad)
-        instance.loinc_code = validated_data.get('loinc_code', instance.loinc_code)
+        instance.unidad           = validated_data.get('unidad', instance.unidad)
+        instance.loinc_code       = validated_data.get('loinc_code', instance.loinc_code)
+        instance.tipo             = validated_data.get('tipo', instance.tipo)
+        instance.opciones_cualitativas = validated_data.get('opciones_cualitativas', instance.opciones_cualitativas)
         instance.save()
 
         if intervalos_data is not None:
@@ -59,8 +63,11 @@ class PropiedadPlantillaSerializer(serializers.ModelSerializer):
                 IntervaloReferencia.objects.create(propiedad=instance, **int_data)
         return instance
 
+
 class PlantillaSerializer(serializers.ModelSerializer):
-    propiedades = PropiedadPlantillaSerializer(many=True, read_only=True)
+    # M2M — propiedades anidadas de solo lectura
+    propiedades = PropiedadSerializer(many=True, read_only=True)
+
     class Meta:
         model = Plantilla
         fields = '__all__'
@@ -75,13 +82,14 @@ class ResultadoSerializer(serializers.ModelSerializer):
         model = ResultadoAnalisis
         fields = ['id', 'loinc_code', 'nombre_propiedad', 'valor', 'unidad']
 
+
 class AnalisisSerializer(serializers.ModelSerializer):
-    resultados = ResultadoSerializer(many=True, required=False)
+    resultados        = ResultadoSerializer(many=True, required=False)
     imagen_resultado1 = Base64ImageField(max_length=None, use_url=True, required=False, allow_null=True)
     imagen_resultado2 = Base64ImageField(max_length=None, use_url=True, required=False, allow_null=True)
 
     class Meta:
-        model = Analisis
+        model  = Analisis
         fields = '__all__'
 
     def create(self, validated_data):
@@ -90,13 +98,17 @@ class AnalisisSerializer(serializers.ModelSerializer):
 
         for res_data in resultados_data:
             nombre_prop = res_data.get('nombre_propiedad')
-            loinc = res_data.get('loinc_code')
+            loinc       = res_data.get('loinc_code')
 
             resultado_existente = None
             if loinc:
-                resultado_existente = ResultadoAnalisis.objects.filter(analisis=analisis, loinc_code=loinc).first()
+                resultado_existente = ResultadoAnalisis.objects.filter(
+                    analisis=analisis, loinc_code=loinc
+                ).first()
             if not resultado_existente and nombre_prop:
-                resultado_existente = ResultadoAnalisis.objects.filter(analisis=analisis, nombre_propiedad=nombre_prop).first()
+                resultado_existente = ResultadoAnalisis.objects.filter(
+                    analisis=analisis, propiedad__nombre_propiedad=nombre_prop
+                ).first()
 
             if resultado_existente:
                 resultado_existente.valor = res_data.get('valor', resultado_existente.valor)
@@ -104,6 +116,7 @@ class AnalisisSerializer(serializers.ModelSerializer):
                 resultado_existente.save()
             else:
                 ResultadoAnalisis.objects.create(analisis=analisis, **res_data)
+
         return analisis
 
 # ======================================================
@@ -112,22 +125,27 @@ class AnalisisSerializer(serializers.ModelSerializer):
 
 class LaboratorioSerializer(serializers.ModelSerializer):
     logo = Base64ImageField(max_length=None, use_url=True, required=False, allow_null=True)
+
     class Meta:
-        model = Laboratorio
+        model  = Laboratorio
         fields = '__all__'
 
+
 class PacienteSerializer(serializers.ModelSerializer):
-    edad = serializers.ReadOnlyField()
-    edad_en_meses = serializers.ReadOnlyField()
+    edad            = serializers.ReadOnlyField()
+    edad_en_meses   = serializers.ReadOnlyField()
     nombre_completo = serializers.ReadOnlyField()
+
     class Meta:
-        model = Paciente
+        model  = Paciente
         fields = '__all__'
+
 
 class UsuarioSerializer(serializers.ModelSerializer):
     firma_digital = Base64ImageField(max_length=None, use_url=True, required=False, allow_null=True)
+
     class Meta:
-        model = Usuario
+        model  = Usuario
         fields = '__all__'
         extra_kwargs = {'password': {'write_only': True}}
 
@@ -155,7 +173,7 @@ class UsuarioLoginResponseSerializer(serializers.ModelSerializer):
         fields = [
             'id',
             'nombre',
-            'correo',               # ← mapeado desde correo_electronico
+            'correo',           # ← mapeado desde correo_electronico
             'rol',
             'puesto',
             'titulo_abreviado',

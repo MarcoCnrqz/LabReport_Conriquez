@@ -10,11 +10,11 @@ from django.db.models import Q
 
 from .models import (
     Paciente, Laboratorio, Analisis, ResultadoAnalisis,
-    Plantilla, PropiedadPlantilla, IntervaloReferencia, Usuario
+    Plantilla, Propiedad, IntervaloReferencia, Usuario
 )
 from .serializers import (
     PacienteSerializer, LaboratorioSerializer, AnalisisSerializer,
-    PlantillaSerializer, PropiedadPlantillaSerializer,
+    PlantillaSerializer,
     IntervaloReferenciaSerializer, UsuarioSerializer,
     LoginSerializer, UsuarioLoginResponseSerializer,
     MiLaboratorioResponseSerializer,
@@ -23,14 +23,14 @@ from .utils.imprimir_pdf import generar_pdf_reporte
 
 
 # ======================================================
-# 🔹 HELPER: Descarga imagen desde URL (Cloudinary)
+# HELPER: Descarga imagen desde URL (Cloudinary)
 # ======================================================
 
 def _descargar_imagen_bytes(field):
     if not field:
         return None
     try:
-        url = field.url
+        url  = field.url
         resp = http_requests.get(url, timeout=10)
         resp.raise_for_status()
         return resp.content
@@ -40,40 +40,36 @@ def _descargar_imagen_bytes(field):
 
 
 # ======================================================
-# 🔹 API VIEWSETS
+# API VIEWSETS
 # ======================================================
 
 class PacienteViewSet(viewsets.ModelViewSet):
-    queryset = Paciente.objects.all()
+    queryset         = Paciente.objects.all()
     serializer_class = PacienteSerializer
 
 class LaboratorioViewSet(viewsets.ModelViewSet):
-    queryset = Laboratorio.objects.all()
+    queryset         = Laboratorio.objects.all()
     serializer_class = LaboratorioSerializer
 
 class AnalisisViewSet(viewsets.ModelViewSet):
-    queryset = Analisis.objects.all()
+    queryset         = Analisis.objects.all()
     serializer_class = AnalisisSerializer
 
 class PlantillaViewSet(viewsets.ModelViewSet):
-    queryset = Plantilla.objects.all()
+    queryset         = Plantilla.objects.all()
     serializer_class = PlantillaSerializer
 
-class PropiedadPlantillaViewSet(viewsets.ModelViewSet):
-    queryset = PropiedadPlantilla.objects.all()
-    serializer_class = PropiedadPlantillaSerializer
-
 class IntervaloReferenciaViewSet(viewsets.ModelViewSet):
-    queryset = IntervaloReferencia.objects.all()
+    queryset         = IntervaloReferencia.objects.all()
     serializer_class = IntervaloReferenciaSerializer
 
 class UsuarioViewSet(viewsets.ModelViewSet):
-    queryset = Usuario.objects.all()
+    queryset         = Usuario.objects.all()
     serializer_class = UsuarioSerializer
 
 
 # ======================================================
-# 🔹 VISTAS GENERALES
+# VISTAS GENERALES
 # ======================================================
 
 def inicio(request):
@@ -87,30 +83,11 @@ def logout_fix(request):
 
 
 # ======================================================
-# 🔹 LOGIN — App de escritorio Python/Tkinter
+# LOGIN — App de escritorio Python/Tkinter
 # ======================================================
 
 @api_view(['POST'])
 def login_api(request):
-    """
-    POST /api/login/
-    Body: { "correo": "doctor@lab.com", "password": "1234" }
-
-    Respuesta 200:
-    {
-        "id": 3,
-        "nombre": "Dr. Juan Pérez",
-        "correo": "doctor@lab.com",
-        "rol": "TECNICO",
-        "puesto": "Químico Clínico",
-        "titulo_abreviado": "Q.C.",
-        "cedula_profesional": "12345678",
-        "is_active": true
-    }
-
-    Respuesta 401:
-    { "error": "Credenciales incorrectas" }
-    """
     serializer = LoginSerializer(data=request.data)
     if not serializer.is_valid():
         return Response(
@@ -121,7 +98,6 @@ def login_api(request):
     correo   = serializer.validated_data["correo"]
     password = serializer.validated_data["password"]
 
-    # Buscar usuario activo por correo
     try:
         usuario = Usuario.objects.get(correo_electronico=correo, is_active=True)
     except Usuario.DoesNotExist:
@@ -130,43 +106,22 @@ def login_api(request):
             status=status.HTTP_401_UNAUTHORIZED
         )
 
-    # Verificar contraseña con el hasher de Django
     if not usuario.check_password(password):
         return Response(
             {"error": "Credenciales incorrectas"},
             status=status.HTTP_401_UNAUTHORIZED
         )
 
-    # Devolver perfil completo
     data = UsuarioLoginResponseSerializer(usuario).data
     return Response(data, status=status.HTTP_200_OK)
 
 
 # ======================================================
-# 🔹 MI LABORATORIO — App de escritorio Python/Tkinter
+# MI LABORATORIO — App de escritorio Python/Tkinter
 # ======================================================
 
 @api_view(['GET'])
 def mi_laboratorio_api(request):
-    """
-    GET /api/mi_laboratorio/?usuario_id=3
-
-    Devuelve el laboratorio al que pertenece el usuario.
-    La app usa esto para mostrar el logo en el menú principal.
-
-    Respuesta 200:
-    {
-        "id": 1,
-        "nombre_laboratorio": "Lab ICE Conriquez",
-        "ciudad": "Irapuato",
-        "estado": "Guanajuato",
-        "logo_url": "https://res.cloudinary.com/...logo.png"
-    }
-
-    Respuesta 404:
-    { "error": "Usuario no encontrado" }
-    { "error": "El usuario no tiene laboratorio asignado" }
-    """
     usuario_id = request.query_params.get('usuario_id')
 
     if not usuario_id:
@@ -175,7 +130,6 @@ def mi_laboratorio_api(request):
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    # Verificar que el usuario existe
     try:
         usuario = Usuario.objects.get(id=usuario_id, is_active=True)
     except Usuario.DoesNotExist:
@@ -184,7 +138,6 @@ def mi_laboratorio_api(request):
             status=status.HTTP_404_NOT_FOUND
         )
 
-    # Obtener el primer laboratorio asociado al usuario (ManyToMany)
     laboratorio = usuario.laboratorios.first()
 
     if not laboratorio:
@@ -195,13 +148,13 @@ def mi_laboratorio_api(request):
 
     data = MiLaboratorioResponseSerializer(
         laboratorio,
-        context={'request': request}   # necesario para build_absolute_uri del logo
+        context={'request': request}
     ).data
     return Response(data, status=status.HTTP_200_OK)
 
 
 # ======================================================
-# 🔹 PDF — FUNCIÓN AUXILIAR
+# PDF — FUNCIÓN AUXILIAR
 # ======================================================
 
 def _construir_detalles_analisis(analisis):
@@ -224,12 +177,9 @@ def _construir_detalles_analisis(analisis):
     for res in analisis.resultados.all():
         valor_min = None
         valor_max = None
-        propiedad = None
-        try:
-            propiedad = analisis.plantilla.propiedades.filter(
-                nombre_propiedad=res.nombre_propiedad
-            ).first()
+        propiedad = res.propiedad  # FK directa — ya no buscamos por nombre
 
+        try:
             if propiedad:
                 intervalo = propiedad.intervalos.filter(
                     Q(sexo=paciente.sexo) | Q(sexo="AMBOS")
@@ -258,36 +208,39 @@ def _construir_detalles_analisis(analisis):
         "paciente":                    paciente.nombre_completo,
         "edad":                        paciente.edad,
         "sexo":                        paciente.sexo,
-        "tipo":                        analisis.plantilla.titulo,
-        "tipo_formato_raw":            analisis.plantilla.tipo_formato,
-        "fecha_muestra":               analisis.fecha_analisis,
+        "tipo":                        analisis.plantilla.titulo if analisis.plantilla else "",
+        "tipo_formato_raw":            analisis.plantilla.tipo_formato if analisis.plantilla else "",
+        "fecha_muestra":               analisis.fecha_muestra,
         "fecha_analisis":              analisis.fecha_analisis,
+        "hora_toma":                   analisis.hora_toma,
         "resultados":                  resultados,
         "laboratorio_nombre":          laboratorio.nombre_laboratorio if laboratorio else "",
         "laboratorio_logo":            logo_bytes,
         "imagen_blob1":                imagen_bytes1,
         "imagen_blob2":                imagen_bytes2,
-        "usuario_generador":           quimico.nombre               if quimico else "",
-        "quimico_puesto":              quimico.puesto               if quimico else "",
-        "quimico_titulo":              quimico.titulo_abreviado      if quimico else "",
-        "quimico_cedula":              quimico.cedula_profesional    if quimico else "",
-        "quimico_cedula_especialidad": quimico.cedula_especialidad   if quimico else "",
-        "quimico_ssg":                 quimico.registro_ssg          if quimico else "",
-        "quimico_universidad":         quimico.universidad_egreso    if quimico else "",
+        # ── NUEVO ────────────────────────────────────────────────────────────
+        "tipo_muestra":                analisis.tipo_muestra or "",
+        "metodo":                      analisis.metodo or "",
+        # ─────────────────────────────────────────────────────────────────────
+        "usuario_generador":           quimico.nombre                if quimico else "",
+        "quimico_puesto":              quimico.puesto                if quimico else "",
+        "quimico_titulo":              quimico.titulo_abreviado       if quimico else "",
+        "quimico_cedula":              quimico.cedula_profesional     if quimico else "",
+        "quimico_cedula_especialidad": quimico.cedula_especialidad    if quimico else "",
+        "quimico_ssg":                 quimico.registro_ssg           if quimico else "",
+        "quimico_universidad":         quimico.universidad_egreso     if quimico else "",
         "quimico_firma_bytes":         firma_bytes,
     }
 
 
 # ======================================================
-# 🔹 PDF — VISTAS
+# PDF — VISTAS
 # ======================================================
 
 def generar_pdf_admin(request, analisis_id):
-    """Vista legacy — mantiene compatibilidad con enlaces anteriores."""
     analisis     = get_object_or_404(Analisis, id=analisis_id)
     detalles     = _construir_detalles_analisis(analisis)
     archivo_path = generar_pdf_reporte(detalles)
-
     return FileResponse(
         open(archivo_path, 'rb'),
         content_type='application/pdf',
@@ -296,11 +249,9 @@ def generar_pdf_admin(request, analisis_id):
 
 
 def generar_pdf_analisis(request, pk):
-    """Vista principal — responde a admin_ext/analisis/<pk>/generar_pdf/"""
     analisis     = get_object_or_404(Analisis, pk=pk)
     detalles     = _construir_detalles_analisis(analisis)
     archivo_path = generar_pdf_reporte(detalles)
-
     return FileResponse(
         open(archivo_path, 'rb'),
         content_type='application/pdf',
@@ -309,7 +260,7 @@ def generar_pdf_analisis(request, pk):
 
 
 # ======================================================
-# 🔹 ADMIN EXT — Tipo de formato de plantilla (para JS del admin)
+# ADMIN EXT — Tipo de formato de plantilla (para JS del admin)
 # ======================================================
 
 @require_GET
@@ -324,9 +275,9 @@ def plantilla_tipo_formato(request, plantilla_id):
 @require_GET
 def plantilla_propiedades(request, plantilla_id):
     """
-    Devuelve las propiedades de una plantilla en JSON.
-    Incluye 'tipo' y 'opciones_cualitativas' para que el JS del admin
-    pueda renderizar correctamente el <select> de opciones y el N/A de unidad.
+    Devuelve las propiedades de una plantilla filtradas por paciente.
+    Incluye 'id' para que el JS pueda usar los checkboxes de exclusión
+    y enviar correctamente los IDs al servidor.
     """
     try:
         plantilla = Plantilla.objects.get(pk=plantilla_id)
@@ -343,7 +294,7 @@ def plantilla_propiedades(request, plantilla_id):
             paciente = None
 
     propiedades_qs = plantilla.propiedades.all()
-    resultado = []
+    resultado      = []
 
     for prop in propiedades_qs:
         if paciente:
@@ -361,6 +312,7 @@ def plantilla_propiedades(request, plantilla_id):
                 continue
 
             resultado.append({
+                'id':                    prop.id,
                 'nombre_propiedad':      prop.nombre_propiedad,
                 'tipo':                  prop.tipo,
                 'opciones_cualitativas': prop.opciones_cualitativas or '',
@@ -370,6 +322,7 @@ def plantilla_propiedades(request, plantilla_id):
             })
         else:
             resultado.append({
+                'id':                    prop.id,
                 'nombre_propiedad':      prop.nombre_propiedad,
                 'tipo':                  prop.tipo,
                 'opciones_cualitativas': prop.opciones_cualitativas or '',
@@ -377,5 +330,40 @@ def plantilla_propiedades(request, plantilla_id):
                 'valor_min':             None,
                 'valor_max':             None,
             })
+
+    return JsonResponse({'propiedades': resultado})
+
+
+@require_GET
+def propiedades_disponibles(request):
+    """
+    GET /admin_ext/propiedades_disponibles/?plantilla_id=<id>
+
+    Devuelve todas las Propiedades que NO están en la plantilla indicada.
+    Se usa para poblar la sección "Agregar propiedades extra" en el admin.
+    """
+    plantilla_id = request.GET.get('plantilla_id')
+
+    if plantilla_id:
+        try:
+            plantilla        = Plantilla.objects.get(pk=plantilla_id)
+            ids_en_plantilla = plantilla.propiedades.values_list('id', flat=True)
+        except Plantilla.DoesNotExist:
+            ids_en_plantilla = []
+    else:
+        ids_en_plantilla = []
+
+    propiedades = Propiedad.objects.exclude(id__in=ids_en_plantilla).order_by('nombre_propiedad')
+
+    resultado = [
+        {
+            'id':                    prop.id,
+            'nombre_propiedad':      prop.nombre_propiedad,
+            'tipo':                  prop.tipo,
+            'unidad':                prop.unidad or '',
+            'opciones_cualitativas': prop.opciones_cualitativas or '',
+        }
+        for prop in propiedades
+    ]
 
     return JsonResponse({'propiedades': resultado})
