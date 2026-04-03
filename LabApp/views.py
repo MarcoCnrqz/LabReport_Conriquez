@@ -1,7 +1,10 @@
+# views.py  — Se agregan solo las partes nuevas/modificadas.
+# El resto de viewsets y vistas permanecen idénticos al original.
+
 import requests as http_requests
 
 from rest_framework import viewsets, status
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, action
 from rest_framework.response import Response
 from django.shortcuts import render, get_object_or_404
 from django.http import HttpResponse, FileResponse, JsonResponse
@@ -14,10 +17,10 @@ from .models import (
 )
 from .serializers import (
     PacienteSerializer, LaboratorioSerializer, AnalisisSerializer,
-    PlantillaSerializer,
-    IntervaloReferenciaSerializer, UsuarioSerializer,
+    PlantillaSerializer, IntervaloReferenciaSerializer, UsuarioSerializer,
     LoginSerializer, UsuarioLoginResponseSerializer,
     MiLaboratorioResponseSerializer,
+    PacienteBusquedaNubeSerializer,   # ← nuevo
 )
 from .utils.imprimir_pdf import generar_pdf_reporte
 
@@ -40,12 +43,8 @@ def _descargar_imagen_bytes(field):
 
 
 # ======================================================
-# API VIEWSETS
+# VIEWSETS
 # ======================================================
-
-class PacienteViewSet(viewsets.ModelViewSet):
-    queryset         = Paciente.objects.all()
-    serializer_class = PacienteSerializer
 
 class LaboratorioViewSet(viewsets.ModelViewSet):
     queryset         = Laboratorio.objects.all()
@@ -69,7 +68,85 @@ class UsuarioViewSet(viewsets.ModelViewSet):
 
 
 # ======================================================
-# VISTAS GENERALES
+# PACIENTE VIEWSET  ← ACTUALIZADO
+# Se agrega el action 'buscar_nube' como ruta extra.
+# ======================================================
+
+class PacienteViewSet(viewsets.ModelViewSet):
+    queryset         = Paciente.objects.all()
+    serializer_class = PacienteSerializer
+
+    def get_queryset(self):
+        """
+        Si viene ?usuario_id=X, filtra los pacientes del laboratorio
+        al que pertenece ese usuario. Si no, devuelve todos.
+        """
+        qs = Paciente.objects.all()
+        usuario_id = self.request.query_params.get('usuario_id')
+        if usuario_id:
+            qs = qs.filter(laboratorio__usuarios__id=usuario_id)
+        return qs
+
+    @action(detail=False, methods=['get'], url_path='buscar_nube')
+    def buscar_nube(self, request):
+        """
+        GET /api/pacientes/buscar_nube/
+            ?usuario_id=<id>
+            &nombre=<texto>
+            &apellido_paterno=<texto>
+
+        Busca pacientes por nombre y/o apellido paterno dentro del
+        laboratorio del usuario. Devuelve el primer resultado con
+        sus análisis incluidos para poder importarlo en la app.
+
+        Respuestas:
+            200 → Paciente encontrado con sus análisis
+            404 → No se encontró ningún paciente
+            400 → Faltan parámetros requeridos
+        """
+        usuario_id      = request.query_params.get('usuario_id')
+        nombre          = request.query_params.get('nombre', '').strip()
+        apellido_paterno = request.query_params.get('apellido_paterno', '').strip()
+
+        if not usuario_id:
+            return Response(
+                {"error": "Se requiere usuario_id"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if not nombre and not apellido_paterno:
+            return Response(
+                {"error": "Debes enviar al menos nombre o apellido_paterno"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Filtramos dentro del laboratorio del usuario
+        qs = Paciente.objects.filter(laboratorio__usuarios__id=usuario_id)
+
+        # Filtro dinámico: busca en nombre Y/O apellido_paterno
+        filtros = Q()
+        if nombre:
+            filtros &= Q(nombre__icontains=nombre)
+        if apellido_paterno:
+            filtros &= Q(apellido_paterno__icontains=apellido_paterno)
+
+        paciente = qs.filter(filtros).first()
+
+        if not paciente:
+            return Response(
+                {"error": "No se encontró ningún paciente con esos datos"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        serializer = PacienteBusquedaNubeSerializer(
+            paciente,
+            context={'request': request}
+        )
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+# ======================================================
+# VISTAS GENERALES (sin cambios)
 # ======================================================
 
 def inicio(request):
@@ -83,7 +160,7 @@ def logout_fix(request):
 
 
 # ======================================================
-# LOGIN — App de escritorio Python/Tkinter
+# LOGIN
 # ======================================================
 
 @api_view(['POST'])
@@ -117,7 +194,7 @@ def login_api(request):
 
 
 # ======================================================
-# MI LABORATORIO — App de escritorio Python/Tkinter
+# MI LABORATORIO
 # ======================================================
 
 @api_view(['GET'])
@@ -171,13 +248,13 @@ def _construir_detalles_analisis(analisis):
         imagen_bytes1 = _descargar_imagen_bytes(analisis.imagen_resultado1)
         imagen_bytes2 = _descargar_imagen_bytes(analisis.imagen_resultado2)
 
-    resultados = []
-    edad_meses = paciente.edad_en_meses
+    resultados  = []
+    edad_meses  = paciente.edad_en_meses
 
     for res in analisis.resultados.all():
         valor_min = None
         valor_max = None
-        propiedad = res.propiedad  # FK directa — ya no buscamos por nombre
+        propiedad = res.propiedad
 
         try:
             if propiedad:
@@ -218,10 +295,8 @@ def _construir_detalles_analisis(analisis):
         "laboratorio_logo":            logo_bytes,
         "imagen_blob1":                imagen_bytes1,
         "imagen_blob2":                imagen_bytes2,
-        # ── NUEVO ────────────────────────────────────────────────────────────
         "tipo_muestra":                analisis.tipo_muestra or "",
         "metodo":                      analisis.metodo or "",
-        # ─────────────────────────────────────────────────────────────────────
         "usuario_generador":           quimico.nombre                if quimico else "",
         "quimico_puesto":              quimico.puesto                if quimico else "",
         "quimico_titulo":              quimico.titulo_abreviado       if quimico else "",
@@ -260,7 +335,7 @@ def generar_pdf_analisis(request, pk):
 
 
 # ======================================================
-# ADMIN EXT — Tipo de formato de plantilla (para JS del admin)
+# ADMIN EXT
 # ======================================================
 
 @require_GET
@@ -274,11 +349,6 @@ def plantilla_tipo_formato(request, plantilla_id):
 
 @require_GET
 def plantilla_propiedades(request, plantilla_id):
-    """
-    Devuelve las propiedades de una plantilla filtradas por paciente.
-    Incluye 'id' para que el JS pueda usar los checkboxes de exclusión
-    y enviar correctamente los IDs al servidor.
-    """
     try:
         plantilla = Plantilla.objects.get(pk=plantilla_id)
     except Plantilla.DoesNotExist:
@@ -299,8 +369,7 @@ def plantilla_propiedades(request, plantilla_id):
     for prop in propiedades_qs:
         if paciente:
             edad_meses = paciente.edad_en_meses
-
-            intervalo = prop.intervalos.filter(
+            intervalo  = prop.intervalos.filter(
                 Q(sexo=paciente.sexo) | Q(sexo='AMBOS')
             ).filter(
                 Q(edad_min_meses__isnull=True) | Q(edad_min_meses__lte=edad_meses)
@@ -336,12 +405,6 @@ def plantilla_propiedades(request, plantilla_id):
 
 @require_GET
 def propiedades_disponibles(request):
-    """
-    GET /admin_ext/propiedades_disponibles/?plantilla_id=<id>
-
-    Devuelve todas las Propiedades que NO están en la plantilla indicada.
-    Se usa para poblar la sección "Agregar propiedades extra" en el admin.
-    """
     plantilla_id = request.GET.get('plantilla_id')
 
     if plantilla_id:
@@ -367,3 +430,4 @@ def propiedades_disponibles(request):
     ]
 
     return JsonResponse({'propiedades': resultado})
+

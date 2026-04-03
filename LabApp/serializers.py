@@ -1,3 +1,6 @@
+# serializers.py  (solo las partes que cambian respecto al original)
+# El resto de serializers (Plantilla, Analisis, Laboratorio, etc.) permanecen igual.
+
 from rest_framework import serializers
 from .models import (
     Paciente, Laboratorio, Analisis, ResultadoAnalisis,
@@ -7,8 +10,9 @@ import base64
 import uuid
 from django.core.files.base import ContentFile
 
+
 # ======================================================
-# 🔧 UTILIDAD: CAMPO DE IMAGEN BASE64
+# UTILIDAD: CAMPO DE IMAGEN BASE64
 # ======================================================
 class Base64ImageField(serializers.ImageField):
     def to_internal_value(self, data):
@@ -22,8 +26,9 @@ class Base64ImageField(serializers.ImageField):
                 raise serializers.ValidationError(f"Error decodificando imagen Base64: {str(e)}")
         return super().to_internal_value(data)
 
+
 # ======================================================
-# 1. SERIALIZERS DE PLANTILLAS
+# SERIALIZERS DE PLANTILLAS (sin cambios)
 # ======================================================
 
 class IntervaloReferenciaSerializer(serializers.ModelSerializer):
@@ -56,7 +61,6 @@ class PropiedadSerializer(serializers.ModelSerializer):
         instance.tipo             = validated_data.get('tipo', instance.tipo)
         instance.opciones_cualitativas = validated_data.get('opciones_cualitativas', instance.opciones_cualitativas)
         instance.save()
-
         if intervalos_data is not None:
             instance.intervalos.all().delete()
             for int_data in intervalos_data:
@@ -65,7 +69,6 @@ class PropiedadSerializer(serializers.ModelSerializer):
 
 
 class PlantillaSerializer(serializers.ModelSerializer):
-    # M2M — propiedades anidadas de solo lectura
     propiedades = PropiedadSerializer(many=True, read_only=True)
 
     class Meta:
@@ -73,8 +76,9 @@ class PlantillaSerializer(serializers.ModelSerializer):
         fields = '__all__'
         read_only_fields = ('sincronizado', 'fecha_modificacion')
 
+
 # ======================================================
-# 2. SERIALIZERS DE ANÁLISIS
+# SERIALIZERS DE ANÁLISIS (sin cambios)
 # ======================================================
 
 class ResultadoSerializer(serializers.ModelSerializer):
@@ -95,11 +99,9 @@ class AnalisisSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         resultados_data = validated_data.pop('resultados', [])
         analisis = Analisis.objects.create(**validated_data)
-
         for res_data in resultados_data:
             nombre_prop = res_data.get('nombre_propiedad')
             loinc       = res_data.get('loinc_code')
-
             resultado_existente = None
             if loinc:
                 resultado_existente = ResultadoAnalisis.objects.filter(
@@ -109,18 +111,48 @@ class AnalisisSerializer(serializers.ModelSerializer):
                 resultado_existente = ResultadoAnalisis.objects.filter(
                     analisis=analisis, propiedad__nombre_propiedad=nombre_prop
                 ).first()
-
             if resultado_existente:
-                resultado_existente.valor = res_data.get('valor', resultado_existente.valor)
+                resultado_existente.valor  = res_data.get('valor', resultado_existente.valor)
                 resultado_existente.unidad = res_data.get('unidad', resultado_existente.unidad)
                 resultado_existente.save()
             else:
                 ResultadoAnalisis.objects.create(analisis=analisis, **res_data)
-
         return analisis
 
+
 # ======================================================
-# 3. OTROS SERIALIZERS
+# PACIENTE  ← ACTUALIZADO
+# ======================================================
+
+class PacienteSerializer(serializers.ModelSerializer):
+    """
+    Ahora expone apellido_paterno y apellido_materno como campos propios
+    del modelo, además de edad y nombre_completo calculados.
+    """
+    edad            = serializers.ReadOnlyField()   # property en el modelo
+    edad_en_meses   = serializers.ReadOnlyField()   # property en el modelo
+    nombre_completo = serializers.ReadOnlyField()   # property en el modelo
+
+    class Meta:
+        model  = Paciente
+        fields = [
+            'id',
+            'nombre',
+            'apellido_paterno',
+            'apellido_materno',
+            'fecha_nacimiento',
+            'sexo',
+            'telefono',
+            'correo_electronico',
+            'laboratorio',
+            'edad',
+            'edad_en_meses',
+            'nombre_completo',
+        ]
+
+
+# ======================================================
+# LABORATORIO (sin cambios)
 # ======================================================
 
 class LaboratorioSerializer(serializers.ModelSerializer):
@@ -131,15 +163,9 @@ class LaboratorioSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 
-class PacienteSerializer(serializers.ModelSerializer):
-    edad            = serializers.ReadOnlyField()
-    edad_en_meses   = serializers.ReadOnlyField()
-    nombre_completo = serializers.ReadOnlyField()
-
-    class Meta:
-        model  = Paciente
-        fields = '__all__'
-
+# ======================================================
+# USUARIO (sin cambios)
+# ======================================================
 
 class UsuarioSerializer(serializers.ModelSerializer):
     firma_digital = Base64ImageField(max_length=None, use_url=True, required=False, allow_null=True)
@@ -149,59 +175,74 @@ class UsuarioSerializer(serializers.ModelSerializer):
         fields = '__all__'
         extra_kwargs = {'password': {'write_only': True}}
 
+
 # ======================================================
-# 4. SERIALIZERS DE LOGIN (app de escritorio)
+# LOGIN (sin cambios)
 # ======================================================
 
 class LoginSerializer(serializers.Serializer):
-    """Valida el body del POST /api/login/"""
     correo   = serializers.EmailField()
     password = serializers.CharField(write_only=True)
 
 
 class UsuarioLoginResponseSerializer(serializers.ModelSerializer):
-    """
-    Respuesta del endpoint /api/login/.
-    Expone solo los campos que la app Python/Tkinter consume.
-    'correo' se mapea desde correo_electronico para que el cliente
-    lo lea como data.get("correo").
-    """
     correo = serializers.EmailField(source='correo_electronico')
 
     class Meta:
         model  = Usuario
         fields = [
-            'id',
-            'nombre',
-            'correo',           # ← mapeado desde correo_electronico
-            'rol',
-            'puesto',
-            'titulo_abreviado',
-            'cedula_profesional',
-            'is_active',
+            'id', 'nombre', 'correo', 'rol',
+            'puesto', 'titulo_abreviado', 'cedula_profesional', 'is_active',
         ]
 
 
 class MiLaboratorioResponseSerializer(serializers.ModelSerializer):
-    """
-    Respuesta del endpoint GET /api/mi_laboratorio/?usuario_id=X
-    Devuelve los datos del laboratorio al que pertenece el usuario,
-    incluyendo la URL absoluta del logo para que la app pueda descargarlo.
-    """
     logo_url = serializers.SerializerMethodField()
 
     class Meta:
         model  = Laboratorio
-        fields = [
-            'id',
-            'nombre_laboratorio',
-            'ciudad',
-            'estado',
-            'logo_url',
-        ]
+        fields = ['id', 'nombre_laboratorio', 'ciudad', 'estado', 'logo_url']
 
     def get_logo_url(self, obj):
         request = self.context.get('request')
         if obj.logo and request:
             return request.build_absolute_uri(obj.logo.url)
         return None
+
+
+# ======================================================
+# BÚSQUEDA EN NUBE  ← NUEVO
+# Serializer de respuesta para el endpoint buscar_nube
+# ======================================================
+
+class PacienteBusquedaNubeSerializer(serializers.ModelSerializer):
+    """
+    Respuesta enriquecida para búsqueda desde la app de escritorio.
+    Incluye los análisis del paciente para poder importarlos junto con él.
+    """
+    edad            = serializers.ReadOnlyField()
+    nombre_completo = serializers.ReadOnlyField()
+    analisis        = serializers.SerializerMethodField()
+
+    class Meta:
+        model  = Paciente
+        fields = [
+            'id',
+            'nombre',
+            'apellido_paterno',
+            'apellido_materno',
+            'fecha_nacimiento',
+            'sexo',
+            'telefono',
+            'correo_electronico',
+            'laboratorio',
+            'edad',
+            'nombre_completo',
+            'analisis',          # lista de análisis con resultados
+        ]
+
+    def get_analisis(self, obj):
+        """Devuelve los análisis del paciente con sus resultados."""
+        from .models import Analisis as AnalisisModel
+        analisis_qs = AnalisisModel.objects.filter(paciente=obj).order_by('-fecha_analisis')
+        return AnalisisSerializer(analisis_qs, many=True, context=self.context).data
