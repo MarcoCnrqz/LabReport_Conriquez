@@ -110,12 +110,8 @@ class PacienteViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
  
-        # Filtramos dentro del laboratorio del usuario
         qs = Paciente.objects.filter(laboratorio__usuarios__id=usuario_id)
  
-        # Filtro con OR: coincide si el nombre aparece en nombre
-        # O si el apellido aparece en apellido_paterno.
-        # Si mandan ambos campos, busca pacientes que cumplan AMBAS condiciones.
         if nombre and apellido_paterno:
             filtros = Q(nombre__icontains=nombre) & Q(apellido_paterno__icontains=apellido_paterno)
         elif nombre:
@@ -125,8 +121,6 @@ class PacienteViewSet(viewsets.ModelViewSet):
  
         pacientes = qs.filter(filtros).order_by('apellido_paterno', 'nombre')
  
-        # Siempre devuelve 200 con lista vacía si no hay resultados
-        # (el cliente ya maneja el caso de lista vacía)
         serializer = PacienteBusquedaNubeSerializer(
             pacientes,
             many=True,
@@ -241,7 +235,12 @@ def _construir_detalles_analisis(analisis):
     resultados  = []
     edad_meses  = paciente.edad_en_meses
  
-    for res in analisis.resultados.all():
+    # ─── CORRECCIÓN: excluir propiedades marcadas como excluidas en el análisis ──
+    ids_excluidos = analisis.propiedades_excluidas.values_list('id', flat=True)
+    resultados_qs = analisis.resultados.exclude(propiedad_id__in=ids_excluidos)
+    # ─────────────────────────────────────────────────────────────────────────────
+ 
+    for res in resultados_qs:
         valor_min = None
         valor_max = None
         propiedad = res.propiedad
@@ -420,3 +419,4 @@ def propiedades_disponibles(request):
     ]
  
     return JsonResponse({'propiedades': resultado})
+ 
