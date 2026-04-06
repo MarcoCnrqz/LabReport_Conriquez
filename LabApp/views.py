@@ -18,7 +18,7 @@ from .serializers import (
     LoginSerializer, UsuarioLoginResponseSerializer,
     MiLaboratorioResponseSerializer,
     PacienteBusquedaNubeSerializer,
-)
+) 
 from .utils.imprimir_pdf import generar_pdf_reporte
  
  
