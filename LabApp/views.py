@@ -44,8 +44,28 @@ def _descargar_imagen_bytes(field):
 # ======================================================
  
 class LaboratorioViewSet(viewsets.ModelViewSet):
+    """
+    GET /api/laboratorios/
+        → Devuelve todos los laboratorios del sistema.
+ 
+    GET /api/laboratorios/?usuario_id=<id>
+        → Devuelve SOLO los laboratorios asignados al usuario.
+          Usa la relación M2M Usuario.laboratorios (related_name='usuarios').
+ 
+    Esto permite que la app de escritorio cargue en el dropdown de
+    "Nuevo Paciente" únicamente los laboratorios del usuario logueado.
+    """
     queryset         = Laboratorio.objects.all()
     serializer_class = LaboratorioSerializer
+ 
+    def get_queryset(self):
+        qs         = Laboratorio.objects.all()
+        usuario_id = self.request.query_params.get('usuario_id')
+        if usuario_id:
+            # Filtra por la M2M: Usuario.laboratorios / related_name='usuarios'
+            qs = qs.filter(usuarios__id=usuario_id)
+        return qs.order_by('nombre_laboratorio')
+ 
  
 class AnalisisViewSet(viewsets.ModelViewSet):
     queryset         = Analisis.objects.all()
@@ -89,10 +109,6 @@ class PacienteViewSet(viewsets.ModelViewSet):
  
         Devuelve LISTA de todos los pacientes que coincidan con los filtros.
         Cada paciente incluye sus análisis para poder importarlos.
- 
-        Respuestas:
-            200 → Lista de pacientes (puede ser [] si no hay resultados)
-            400 → Faltan parámetros requeridos
         """
         usuario_id       = request.query_params.get('usuario_id')
         nombre           = request.query_params.get('nombre', '').strip()
@@ -235,10 +251,8 @@ def _construir_detalles_analisis(analisis):
     resultados  = []
     edad_meses  = paciente.edad_en_meses
  
-    # ─── CORRECCIÓN: excluir propiedades marcadas como excluidas en el análisis ──
     ids_excluidos = analisis.propiedades_excluidas.values_list('id', flat=True)
     resultados_qs = analisis.resultados.exclude(propiedad_id__in=ids_excluidos)
-    # ─────────────────────────────────────────────────────────────────────────────
  
     for res in resultados_qs:
         valor_min = None
@@ -419,4 +433,3 @@ def propiedades_disponibles(request):
     ]
  
     return JsonResponse({'propiedades': resultado})
- 
