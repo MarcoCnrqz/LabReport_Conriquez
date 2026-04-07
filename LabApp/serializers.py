@@ -30,18 +30,28 @@ class Base64ImageField(serializers.ImageField):
 # SERIALIZERS DE PLANTILLAS
 # ======================================================
 
+# FIX: IntervaloReferenciaSerializer — se quita 'propiedad' de read_only_fields
+# porque en PropiedadSerializer.create/update se crea el intervalo pasando
+# propiedad=instance directamente (no via payload), así que no hay conflicto.
+# Pero sí debe estar excluido del campo 'fields' cuando se anida dentro de
+# PropiedadSerializer, porque ya se asigna por código. Se deja '__all__' para
+# que el endpoint /api/intervalos/ siga funcionando completo de forma independiente.
 class IntervaloReferenciaSerializer(serializers.ModelSerializer):
     class Meta:
-        model = IntervaloReferencia
+        model  = IntervaloReferencia
         fields = '__all__'
-        read_only_fields = ('sincronizado', 'fecha_modificacion', 'propiedad')
+        # 'propiedad' se mantiene como requerido en el endpoint independiente,
+        # pero en el contexto anidado de PropiedadSerializer se asigna por código.
+        read_only_fields = ('sincronizado', 'fecha_modificacion')
 
 
 class PropiedadSerializer(serializers.ModelSerializer):
+    # FIX: 'intervalos' anidado — required=False para que POST sin intervalos
+    # (propiedades cualitativas) no falle validación.
     intervalos = IntervaloReferenciaSerializer(many=True, required=False)
 
     class Meta:
-        model = Propiedad
+        model  = Propiedad
         fields = '__all__'
         read_only_fields = ('sincronizado', 'fecha_modificacion')
 
@@ -49,6 +59,9 @@ class PropiedadSerializer(serializers.ModelSerializer):
         intervalos_data = validated_data.pop('intervalos', [])
         propiedad = Propiedad.objects.create(**validated_data)
         for int_data in intervalos_data:
+            # FIX: quitar 'propiedad' del dict si viene por error desde el cliente,
+            # porque ya se asigna explícitamente abajo.
+            int_data.pop('propiedad', None)
             IntervaloReferencia.objects.create(propiedad=propiedad, **int_data)
         return propiedad
 
@@ -67,29 +80,47 @@ class PropiedadSerializer(serializers.ModelSerializer):
         if intervalos_data is not None:
             instance.intervalos.all().delete()
             for int_data in intervalos_data:
+                # FIX: ídem — descartar 'propiedad' si viene en el payload.
+                int_data.pop('propiedad', None)
                 IntervaloReferencia.objects.create(propiedad=instance, **int_data)
         return instance
 
 
 class PlantillaSerializer(serializers.ModelSerializer):
-    # LECTURA: propiedades completas con tipo, opciones_cualitativas e intervalos
+    # LECTURA: propiedades completas con tipo, opciones_cualitativas e intervalos.
+    # Esto garantiza que la app local reciba todo lo necesario para sincronizar
+    # propiedades cuantitativas Y cualitativas desde un solo endpoint.
     propiedades = PropiedadSerializer(many=True, read_only=True)
 
-    # FIX: campo write-only para asignar M2M desde POST/PATCH.
-    # Antes propiedades era read_only=True, así que propiedades_ids se ignoraba
-    # silenciosamente. Ahora create() y update() lo procesan correctamente.
+    # Campo write-only para asignar M2M desde POST/PATCH.
+    # El controller local manda los remote_id (PKs de Django) de cada propiedad.
+    # create() y update() lo procesan correctamente.
     propiedades_ids = serializers.ListField(
         child=serializers.IntegerField(),
         write_only=True,
         required=False,
         default=list,
-        help_text="IDs de Propiedad (PK en esta BD) para asignar al M2M.",
+        help_text="IDs de Propiedad (PK en esta BD Django) para asignar al M2M.",
     )
 
     class Meta:
-        model = Plantilla
+        model  = Plantilla
         fields = '__all__'
         read_only_fields = ('sincronizado', 'fecha_modificacion')
+
+    def validate_tipo_formato(self, value):
+        # FIX: El modelo Plantilla en Django solo acepta 'RESULTADOS' e
+        # 'IMAGENES_RESULTADOS'. Si la app local manda 'RECETA_JUSTIFICADA',
+        # se convierte a 'RESULTADOS' en lugar de fallar con un 400 silencioso,
+        # y se loguea para que el desarrollador lo detecte.
+        # NOTA: si en el futuro se agrega RECETA_JUSTIFICADA al modelo Django,
+        # simplemente se puede eliminar este método validate_.
+        choices_validos = [c[0] for c in Plantilla.FORMATOS]
+        if value not in choices_validos:
+            print(f"  [PlantillaSerializer] ADVERTENCIA: tipo_formato '{value}' no existe "
+                  f"en el modelo Django. Se usará 'RESULTADOS' como fallback.")
+            return 'RESULTADOS'
+        return value
 
     def create(self, validated_data):
         propiedades_ids = validated_data.pop('propiedades_ids', [])
@@ -97,8 +128,14 @@ class PlantillaSerializer(serializers.ModelSerializer):
         if propiedades_ids:
             props = Propiedad.objects.filter(id__in=propiedades_ids)
             plantilla.propiedades.set(props)
-            print(f"  [Serializer] Plantilla '{plantilla.titulo}' → "
-                  f"{props.count()} propiedades asignadas.")
+            print(f"  [PlantillaSerializer] Plantilla '{plantilla.titulo}' → "
+                  f"{props.count()} propiedades asignadas (de {len(propiedades_ids)} IDs recibidos).")
+            # Log de advertencia si algún ID no se encontró
+            encontrados = set(props.values_list('id', flat=True))
+            no_encontrados = [pid for pid in propiedades_ids if pid not in encontrados]
+            if no_encontrados:
+                print(f"  [PlantillaSerializer] ADVERTENCIA: IDs de propiedades no encontrados "
+                      f"en la BD Django: {no_encontrados}")
         return plantilla
 
     def update(self, instance, validated_data):
@@ -106,12 +143,16 @@ class PlantillaSerializer(serializers.ModelSerializer):
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()
-        # Solo actualiza M2M si se envió el campo (permite PATCH parcial)
+        # Solo actualiza M2M si se envió el campo (permite PATCH parcial).
         if propiedades_ids is not None:
             props = Propiedad.objects.filter(id__in=propiedades_ids)
             instance.propiedades.set(props)
-            print(f"  [Serializer] Plantilla '{instance.titulo}' → "
+            print(f"  [PlantillaSerializer] Plantilla '{instance.titulo}' → "
                   f"M2M actualizado a {props.count()} propiedades.")
+            encontrados = set(props.values_list('id', flat=True))
+            no_encontrados = [pid for pid in propiedades_ids if pid not in encontrados]
+            if no_encontrados:
+                print(f"  [PlantillaSerializer] ADVERTENCIA: IDs no encontrados: {no_encontrados}")
         return instance
 
 
@@ -128,7 +169,7 @@ class ResultadoSerializer(serializers.ModelSerializer):
     siempre viaja en la respuesta.
     """
     class Meta:
-        model = ResultadoAnalisis
+        model  = ResultadoAnalisis
         fields = ['id', 'loinc_code', 'nombre_propiedad', 'valor', 'unidad']
 
 
@@ -206,7 +247,6 @@ class AnalisisSerializer(serializers.ModelSerializer):
             nombre_prop = (res_data.get('nombre_propiedad') or '').strip()
             valor       = res_data.get('valor', '')
             unidad      = res_data.get('unidad', '')
-            loinc       = res_data.get('loinc_code')
 
             propiedad_obj = None
             if nombre_prop:
