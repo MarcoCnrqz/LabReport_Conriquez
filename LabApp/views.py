@@ -14,11 +14,11 @@ from .models import (
 )
 from .serializers import (
     PacienteSerializer, LaboratorioSerializer, AnalisisSerializer,
-    PlantillaSerializer, IntervaloReferenciaSerializer, UsuarioSerializer,
-    LoginSerializer, UsuarioLoginResponseSerializer,
+    PlantillaSerializer, PropiedadSerializer, IntervaloReferenciaSerializer,
+    UsuarioSerializer, LoginSerializer, UsuarioLoginResponseSerializer,
     MiLaboratorioResponseSerializer,
     PacienteBusquedaNubeSerializer,
-) 
+)
 from .utils.imprimir_pdf import generar_pdf_reporte
  
  
@@ -74,7 +74,20 @@ class AnalisisViewSet(viewsets.ModelViewSet):
 class PlantillaViewSet(viewsets.ModelViewSet):
     queryset         = Plantilla.objects.all()
     serializer_class = PlantillaSerializer
- 
+
+
+class PropiedadViewSet(viewsets.ModelViewSet):
+    """
+    GET    /api/propiedades/        → lista con intervalos anidados
+    POST   /api/propiedades/        → crea (acepta tipo, opciones_cualitativas, intervalos)
+    PUT    /api/propiedades/<id>/   → reemplaza completa
+    PATCH  /api/propiedades/<id>/   → actualización parcial
+    DELETE /api/propiedades/<id>/   → elimina
+    """
+    queryset         = Propiedad.objects.prefetch_related('intervalos').all()
+    serializer_class = PropiedadSerializer
+
+
 class IntervaloReferenciaViewSet(viewsets.ModelViewSet):
     queryset         = IntervaloReferencia.objects.all()
     serializer_class = IntervaloReferenciaSerializer
