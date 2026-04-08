@@ -277,6 +277,20 @@ def _construir_detalles_analisis(analisis):
     resultados_qs = analisis.resultados.exclude(propiedad_id__in=ids_excluidos)
 
     for res in resultados_qs:
+        # FIX: omitir resultados sin nombre_propiedad para evitar filas vacías en PDF.
+        # Se intenta recuperar el nombre desde la FK si el campo denormalizado está vacío.
+        nombre_prop = res.nombre_propiedad
+        if not nombre_prop:
+            try:
+                nombre_prop = res.propiedad.nombre_propiedad if res.propiedad else None
+            except Exception:
+                nombre_prop = None
+
+        if not nombre_prop:
+            # Si no hay nombre en ningún lado, saltar esta fila (evita fila vacía en PDF)
+            print(f"  [PDF] Resultado id={res.pk} sin nombre_propiedad — omitido del PDF")
+            continue
+
         valor_min = None
         valor_max = None
         propiedad = res.propiedad
@@ -297,10 +311,11 @@ def _construir_detalles_analisis(analisis):
         except Exception:
             pass
 
+        # FIX: usar el nombre recuperado (puede venir del campo denormalizado o de la FK)
         resultados.append({
-            "nombre_propiedad":      res.nombre_propiedad,
-            "valor":                 res.valor,
-            "unidad":                res.unidad,
+            "nombre_propiedad":      nombre_prop,
+            "valor":                 res.valor or "",
+            "unidad":                res.unidad or "",
             "valor_min":             valor_min,
             "valor_max":             valor_max,
             "opciones_cualitativas": propiedad.opciones_cualitativas if propiedad else "",
