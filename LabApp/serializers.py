@@ -30,29 +30,14 @@ class Base64ImageField(serializers.ImageField):
 # SERIALIZERS DE PLANTILLAS
 # ======================================================
  
-# FIX: IntervaloReferenciaSerializer — se quita 'propiedad' de read_only_fields
-# porque en PropiedadSerializer.create/update se crea el intervalo pasando
-# propiedad=instance directamente (no via payload), así que no hay conflicto.
-# Pero sí debe estar excluido del campo 'fields' cuando se anida dentro de
-# PropiedadSerializer, porque ya se asigna por código. Se deja '__all__' para
-# que el endpoint /api/intervalos/ siga funcionando completo de forma independiente.
 class IntervaloReferenciaSerializer(serializers.ModelSerializer):
     class Meta:
         model  = IntervaloReferencia
         fields = '__all__'
-        # FIX: 'propiedad' se marca read_only para que cuando este serializer
-        # llega ANIDADO dentro de PropiedadSerializer (sin el campo 'propiedad'
-        # en el payload), la validación no falle con "Este campo es requerido."
-        # En create/update de PropiedadSerializer se asigna propiedad=instance
-        # directamente por código, por lo que no se necesita en el payload.
-        # El endpoint independiente /api/intervalos/ sigue funcionando igual
-        # porque al asignar vía PUT/PATCH directo la FK se pasa explícitamente.
         read_only_fields = ('sincronizado', 'fecha_modificacion', 'propiedad')
  
  
 class PropiedadSerializer(serializers.ModelSerializer):
-    # FIX: 'intervalos' anidado — required=False para que POST sin intervalos
-    # (propiedades cualitativas) no falle validación.
     intervalos = IntervaloReferenciaSerializer(many=True, required=False)
  
     class Meta:
@@ -64,8 +49,6 @@ class PropiedadSerializer(serializers.ModelSerializer):
         intervalos_data = validated_data.pop('intervalos', [])
         propiedad = Propiedad.objects.create(**validated_data)
         for int_data in intervalos_data:
-            # FIX: quitar 'propiedad' del dict si viene por error desde el cliente,
-            # porque ya se asigna explícitamente abajo.
             int_data.pop('propiedad', None)
             IntervaloReferencia.objects.create(propiedad=propiedad, **int_data)
         return propiedad
@@ -85,21 +68,14 @@ class PropiedadSerializer(serializers.ModelSerializer):
         if intervalos_data is not None:
             instance.intervalos.all().delete()
             for int_data in intervalos_data:
-                # FIX: ídem — descartar 'propiedad' si viene en el payload.
                 int_data.pop('propiedad', None)
                 IntervaloReferencia.objects.create(propiedad=instance, **int_data)
         return instance
  
  
 class PlantillaSerializer(serializers.ModelSerializer):
-    # LECTURA: propiedades completas con tipo, opciones_cualitativas e intervalos.
-    # Esto garantiza que la app local reciba todo lo necesario para sincronizar
-    # propiedades cuantitativas Y cualitativas desde un solo endpoint.
     propiedades = PropiedadSerializer(many=True, read_only=True)
  
-    # Campo write-only para asignar M2M desde POST/PATCH.
-    # El controller local manda los remote_id (PKs de Django) de cada propiedad.
-    # create() y update() lo procesan correctamente.
     propiedades_ids = serializers.ListField(
         child=serializers.IntegerField(),
         write_only=True,
@@ -114,12 +90,6 @@ class PlantillaSerializer(serializers.ModelSerializer):
         read_only_fields = ('sincronizado', 'fecha_modificacion')
  
     def validate_tipo_formato(self, value):
-        # FIX: El modelo Plantilla en Django solo acepta 'RESULTADOS' e
-        # 'IMAGENES_RESULTADOS'. Si la app local manda 'RECETA_JUSTIFICADA',
-        # se convierte a 'RESULTADOS' en lugar de fallar con un 400 silencioso,
-        # y se loguea para que el desarrollador lo detecte.
-        # NOTA: si en el futuro se agrega RECETA_JUSTIFICADA al modelo Django,
-        # simplemente se puede eliminar este método validate_.
         choices_validos = [c[0] for c in Plantilla.FORMATOS]
         if value not in choices_validos:
             print(f"  [PlantillaSerializer] ADVERTENCIA: tipo_formato '{value}' no existe "
@@ -135,7 +105,6 @@ class PlantillaSerializer(serializers.ModelSerializer):
             plantilla.propiedades.set(props)
             print(f"  [PlantillaSerializer] Plantilla '{plantilla.titulo}' → "
                   f"{props.count()} propiedades asignadas (de {len(propiedades_ids)} IDs recibidos).")
-            # Log de advertencia si algún ID no se encontró
             encontrados = set(props.values_list('id', flat=True))
             no_encontrados = [pid for pid in propiedades_ids if pid not in encontrados]
             if no_encontrados:
@@ -148,7 +117,6 @@ class PlantillaSerializer(serializers.ModelSerializer):
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()
-        # Solo actualiza M2M si se envió el campo (permite PATCH parcial).
         if propiedades_ids is not None:
             props = Propiedad.objects.filter(id__in=propiedades_ids)
             instance.propiedades.set(props)
@@ -193,6 +161,11 @@ class AnalisisSerializer(serializers.ModelSerializer):
  
     LECTURA (GET):
       - Devuelve resultados con sus IDs reales de la nube para sincronización.
+      - FIX: Incluye 'plantilla_titulo' para que la app local pueda mostrar
+        el nombre de la plantilla sin necesidad de un JOIN adicional.
+        La app usaba analisis.get('plantilla', 'ESTUDIO') pero 'plantilla'
+        es una FK (int o None), nunca un string, causando AttributeError al
+        llamar .upper() sobre None.
     """
     resultados        = ResultadoSerializer(many=True, required=False)
     imagen_resultado1 = Base64ImageField(
@@ -200,6 +173,16 @@ class AnalisisSerializer(serializers.ModelSerializer):
     )
     imagen_resultado2 = Base64ImageField(
         max_length=None, use_url=True, required=False, allow_null=True
+    )
+ 
+    # FIX: campo de solo lectura que expone el título de la plantilla como
+    # string en cada respuesta GET, resolviendo el AttributeError en la app
+    # cuando plantilla es None o un entero.
+    plantilla_titulo = serializers.CharField(
+        source='plantilla.titulo',
+        read_only=True,
+        default='',
+        allow_null=True,
     )
  
     nombres_propiedades_extra = serializers.ListField(
@@ -463,4 +446,3 @@ class PacienteBusquedaNubeSerializer(serializers.ModelSerializer):
         return AnalisisSerializer(
             analisis_qs, many=True, context=self.context
         ).data
- 
