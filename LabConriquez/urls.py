@@ -32,6 +32,9 @@ router.register(r'propiedades', views.PropiedadViewSet)
 
 router.register(r'intervalos_referencia', views.IntervaloReferenciaViewSet)
 
+# Resultados individuales — permite PATCH /api/resultados/<id>/ desde la app local
+router.register(r'resultados', views.ResultadoAnalisisViewSet, basename='resultados')
+
 
 # ======================================================
 # 3. PATRONES DE URL

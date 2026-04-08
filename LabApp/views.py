@@ -75,6 +75,30 @@ class AnalisisViewSet(viewsets.ModelViewSet):
 # y sus intervalos se serialicen completos en cada respuesta de /api/plantillas/.
 # Sin esto, el serializer hace una query extra por cada plantilla para obtener
 # sus propiedades, y otra por cada propiedad para obtener sus intervalos.
+class ResultadoAnalisisViewSet(viewsets.ModelViewSet):
+    """
+    PATCH /api/resultados/<id>/
+        Actualiza el valor (y opcionalmente unidad) de un ResultadoAnalisis por su ID.
+        Usado por la app local para sincronizar ediciones a la nube de forma precisa.
+    """
+    queryset         = ResultadoAnalisis.objects.all()
+    serializer_class = ResultadoSerializer
+
+    def partial_update(self, request, *args, **kwargs):
+        instancia = self.get_object()
+        nuevo_valor = request.data.get('valor')
+        nueva_unidad = request.data.get('unidad')
+
+        if nuevo_valor is not None:
+            instancia.valor = nuevo_valor
+        if nueva_unidad is not None:
+            instancia.unidad = nueva_unidad
+        instancia.save()
+
+        from .serializers import ResultadoSerializer as RS
+        return Response(RS(instancia).data, status=status.HTTP_200_OK)
+
+
 class PlantillaViewSet(viewsets.ModelViewSet):
     queryset = Plantilla.objects.prefetch_related(
         'propiedades',
