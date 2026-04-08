@@ -1,5 +1,5 @@
 import requests as http_requests
-
+ 
 from rest_framework import viewsets, status
 from rest_framework.decorators import api_view, action
 from rest_framework.response import Response
@@ -7,7 +7,7 @@ from django.shortcuts import render, get_object_or_404
 from django.http import HttpResponse, FileResponse, JsonResponse
 from django.views.decorators.http import require_GET
 from django.db.models import Q
-
+ 
 from .models import (
     Paciente, Laboratorio, Analisis, ResultadoAnalisis,
     Plantilla, Propiedad, IntervaloReferencia, Usuario
@@ -18,14 +18,15 @@ from .serializers import (
     UsuarioSerializer, LoginSerializer, UsuarioLoginResponseSerializer,
     MiLaboratorioResponseSerializer,
     PacienteBusquedaNubeSerializer,
+    ResultadoSerializer,
 )
 from .utils.imprimir_pdf import generar_pdf_reporte
-
-
+ 
+ 
 # ======================================================
 # HELPER: Descarga imagen desde URL (Cloudinary)
 # ======================================================
-
+ 
 def _descargar_imagen_bytes(field):
     if not field:
         return None
@@ -37,40 +38,40 @@ def _descargar_imagen_bytes(field):
     except Exception as e:
         print(f"Error descargando imagen desde {getattr(field, 'name', '?')}: {e}")
         return None
-
-
+ 
+ 
 # ======================================================
 # VIEWSETS
 # ======================================================
-
+ 
 class LaboratorioViewSet(viewsets.ModelViewSet):
     """
     GET /api/laboratorios/
         → Devuelve todos los laboratorios del sistema.
-
+ 
     GET /api/laboratorios/?usuario_id=<id>
         → Devuelve SOLO los laboratorios asignados al usuario.
           Usa la relación M2M Usuario.laboratorios (related_name='usuarios').
-
+ 
     Esto permite que la app de escritorio cargue en el dropdown de
     "Nuevo Paciente" únicamente los laboratorios del usuario logueado.
     """
     queryset         = Laboratorio.objects.all()
     serializer_class = LaboratorioSerializer
-
+ 
     def get_queryset(self):
         qs         = Laboratorio.objects.all()
         usuario_id = self.request.query_params.get('usuario_id')
         if usuario_id:
             qs = qs.filter(usuarios__id=usuario_id)
         return qs.order_by('nombre_laboratorio')
-
-
+ 
+ 
 class AnalisisViewSet(viewsets.ModelViewSet):
     queryset         = Analisis.objects.all()
     serializer_class = AnalisisSerializer
-
-
+ 
+ 
 # FIX: prefetch_related para evitar N+1 queries y garantizar que las propiedades
 # y sus intervalos se serialicen completos en cada respuesta de /api/plantillas/.
 # Sin esto, el serializer hace una query extra por cada plantilla para obtener
@@ -83,30 +84,29 @@ class ResultadoAnalisisViewSet(viewsets.ModelViewSet):
     """
     queryset         = ResultadoAnalisis.objects.all()
     serializer_class = ResultadoSerializer
-
+ 
     def partial_update(self, request, *args, **kwargs):
         instancia = self.get_object()
         nuevo_valor = request.data.get('valor')
         nueva_unidad = request.data.get('unidad')
-
+ 
         if nuevo_valor is not None:
             instancia.valor = nuevo_valor
         if nueva_unidad is not None:
             instancia.unidad = nueva_unidad
         instancia.save()
-
-        from .serializers import ResultadoSerializer as RS
-        return Response(RS(instancia).data, status=status.HTTP_200_OK)
-
-
+ 
+        return Response(ResultadoSerializer(instancia).data, status=status.HTTP_200_OK)
+ 
+ 
 class PlantillaViewSet(viewsets.ModelViewSet):
     queryset = Plantilla.objects.prefetch_related(
         'propiedades',
         'propiedades__intervalos',
     ).all()
     serializer_class = PlantillaSerializer
-
-
+ 
+ 
 # FIX: prefetch_related en PropiedadViewSet para que los intervalos anidados
 # se devuelvan correctamente sin queries adicionales.
 class PropiedadViewSet(viewsets.ModelViewSet):
@@ -119,32 +119,32 @@ class PropiedadViewSet(viewsets.ModelViewSet):
     """
     queryset         = Propiedad.objects.prefetch_related('intervalos').all()
     serializer_class = PropiedadSerializer
-
-
+ 
+ 
 class IntervaloReferenciaViewSet(viewsets.ModelViewSet):
     queryset         = IntervaloReferencia.objects.all()
     serializer_class = IntervaloReferenciaSerializer
-
+ 
 class UsuarioViewSet(viewsets.ModelViewSet):
     queryset         = Usuario.objects.all()
     serializer_class = UsuarioSerializer
-
-
+ 
+ 
 # ======================================================
 # PACIENTE VIEWSET
 # ======================================================
-
+ 
 class PacienteViewSet(viewsets.ModelViewSet):
     queryset         = Paciente.objects.all()
     serializer_class = PacienteSerializer
-
+ 
     def get_queryset(self):
         qs = Paciente.objects.all()
         usuario_id = self.request.query_params.get('usuario_id')
         if usuario_id:
             qs = qs.filter(laboratorio__usuarios__id=usuario_id)
         return qs
-
+ 
     @action(detail=False, methods=['get'], url_path='buscar_nube')
     def buscar_nube(self, request):
         """
@@ -152,63 +152,63 @@ class PacienteViewSet(viewsets.ModelViewSet):
             ?usuario_id=<id>
             &nombre=<texto>
             &apellido_paterno=<texto>
-
+ 
         Devuelve LISTA de todos los pacientes que coincidan con los filtros.
         Cada paciente incluye sus análisis para poder importarlos.
         """
         usuario_id       = request.query_params.get('usuario_id')
         nombre           = request.query_params.get('nombre', '').strip()
         apellido_paterno = request.query_params.get('apellido_paterno', '').strip()
-
+ 
         if not usuario_id:
             return Response(
                 {"error": "Se requiere usuario_id"},
                 status=status.HTTP_400_BAD_REQUEST
             )
-
+ 
         if not nombre and not apellido_paterno:
             return Response(
                 {"error": "Debes enviar al menos nombre o apellido_paterno"},
                 status=status.HTTP_400_BAD_REQUEST
             )
-
+ 
         qs = Paciente.objects.filter(laboratorio__usuarios__id=usuario_id)
-
+ 
         if nombre and apellido_paterno:
             filtros = Q(nombre__icontains=nombre) & Q(apellido_paterno__icontains=apellido_paterno)
         elif nombre:
             filtros = Q(nombre__icontains=nombre)
         else:
             filtros = Q(apellido_paterno__icontains=apellido_paterno)
-
+ 
         pacientes = qs.filter(filtros).order_by('apellido_paterno', 'nombre')
-
+ 
         serializer = PacienteBusquedaNubeSerializer(
             pacientes,
             many=True,
             context={'request': request}
         )
         return Response(serializer.data, status=status.HTTP_200_OK)
-
-
+ 
+ 
 # ======================================================
 # VISTAS GENERALES
 # ======================================================
-
+ 
 def inicio(request):
     return render(request, 'inicio.html', {})
-
-
+ 
+ 
 def logout_fix(request):
     from django.contrib.auth import logout
     logout(request)
     return render(request, 'admin/login.html', {})
-
-
+ 
+ 
 # ======================================================
 # LOGIN
 # ======================================================
-
+ 
 @api_view(['POST'])
 def login_api(request):
     serializer = LoginSerializer(data=request.data)
@@ -217,10 +217,10 @@ def login_api(request):
             {"error": "Datos inválidos", "detalle": serializer.errors},
             status=status.HTTP_400_BAD_REQUEST
         )
-
+ 
     correo   = serializer.validated_data["correo"]
     password = serializer.validated_data["password"]
-
+ 
     try:
         usuario = Usuario.objects.get(correo_electronico=correo, is_active=True)
     except Usuario.DoesNotExist:
@@ -228,31 +228,31 @@ def login_api(request):
             {"error": "Credenciales incorrectas"},
             status=status.HTTP_401_UNAUTHORIZED
         )
-
+ 
     if not usuario.check_password(password):
         return Response(
             {"error": "Credenciales incorrectas"},
             status=status.HTTP_401_UNAUTHORIZED
         )
-
+ 
     data = UsuarioLoginResponseSerializer(usuario).data
     return Response(data, status=status.HTTP_200_OK)
-
-
+ 
+ 
 # ======================================================
 # MI LABORATORIO
 # ======================================================
-
+ 
 @api_view(['GET'])
 def mi_laboratorio_api(request):
     usuario_id = request.query_params.get('usuario_id')
-
+ 
     if not usuario_id:
         return Response(
             {"error": "Se requiere el parámetro usuario_id"},
             status=status.HTTP_400_BAD_REQUEST
         )
-
+ 
     try:
         usuario = Usuario.objects.get(id=usuario_id, is_active=True)
     except Usuario.DoesNotExist:
@@ -260,46 +260,46 @@ def mi_laboratorio_api(request):
             {"error": "Usuario no encontrado"},
             status=status.HTTP_404_NOT_FOUND
         )
-
+ 
     laboratorio = usuario.laboratorios.first()
-
+ 
     if not laboratorio:
         return Response(
             {"error": "El usuario no tiene laboratorio asignado"},
             status=status.HTTP_404_NOT_FOUND
         )
-
+ 
     data = MiLaboratorioResponseSerializer(
         laboratorio,
         context={'request': request}
     ).data
     return Response(data, status=status.HTTP_200_OK)
-
-
+ 
+ 
 # ======================================================
 # PDF — FUNCIÓN AUXILIAR
 # ======================================================
-
+ 
 def _construir_detalles_analisis(analisis):
     paciente    = analisis.paciente
     laboratorio = paciente.laboratorio if hasattr(paciente, 'laboratorio') else None
     quimico     = analisis.creado_por
-
+ 
     logo_bytes  = _descargar_imagen_bytes(laboratorio.logo if laboratorio else None)
     firma_bytes = _descargar_imagen_bytes(quimico.firma_digital if quimico else None)
-
+ 
     imagen_bytes1 = None
     imagen_bytes2 = None
     if analisis.plantilla and analisis.plantilla.tipo_formato == 'IMAGENES_RESULTADOS':
         imagen_bytes1 = _descargar_imagen_bytes(analisis.imagen_resultado1)
         imagen_bytes2 = _descargar_imagen_bytes(analisis.imagen_resultado2)
-
+ 
     resultados  = []
     edad_meses  = paciente.edad_en_meses
-
+ 
     ids_excluidos = analisis.propiedades_excluidas.values_list('id', flat=True)
     resultados_qs = analisis.resultados.exclude(propiedad_id__in=ids_excluidos)
-
+ 
     for res in resultados_qs:
         # FIX: omitir resultados sin nombre_propiedad para evitar filas vacías en PDF.
         # Se intenta recuperar el nombre desde la FK si el campo denormalizado está vacío.
@@ -309,16 +309,16 @@ def _construir_detalles_analisis(analisis):
                 nombre_prop = res.propiedad.nombre_propiedad if res.propiedad else None
             except Exception:
                 nombre_prop = None
-
+ 
         if not nombre_prop:
             # Si no hay nombre en ningún lado, saltar esta fila (evita fila vacía en PDF)
             print(f"  [PDF] Resultado id={res.pk} sin nombre_propiedad — omitido del PDF")
             continue
-
+ 
         valor_min = None
         valor_max = None
         propiedad = res.propiedad
-
+ 
         try:
             if propiedad:
                 intervalo = propiedad.intervalos.filter(
@@ -328,13 +328,13 @@ def _construir_detalles_analisis(analisis):
                 ).filter(
                     Q(edad_max_meses__isnull=True) | Q(edad_max_meses__gte=edad_meses)
                 ).first()
-
+ 
                 if intervalo:
                     valor_min = intervalo.valor_min
                     valor_max = intervalo.valor_max
         except Exception:
             pass
-
+ 
         # FIX: usar el nombre recuperado (puede venir del campo denormalizado o de la FK)
         resultados.append({
             "nombre_propiedad":      nombre_prop,
@@ -344,7 +344,7 @@ def _construir_detalles_analisis(analisis):
             "valor_max":             valor_max,
             "opciones_cualitativas": propiedad.opciones_cualitativas if propiedad else "",
         })
-
+ 
     return {
         "paciente":                    paciente.nombre_completo,
         "edad":                        paciente.edad,
@@ -370,12 +370,12 @@ def _construir_detalles_analisis(analisis):
         "quimico_universidad":         quimico.universidad_egreso     if quimico else "",
         "quimico_firma_bytes":         firma_bytes,
     }
-
-
+ 
+ 
 # ======================================================
 # PDF — VISTAS
 # ======================================================
-
+ 
 def generar_pdf_admin(request, analisis_id):
     analisis     = get_object_or_404(Analisis, id=analisis_id)
     detalles     = _construir_detalles_analisis(analisis)
@@ -385,8 +385,8 @@ def generar_pdf_admin(request, analisis_id):
         content_type='application/pdf',
         filename=f"analisis_{analisis_id}.pdf"
     )
-
-
+ 
+ 
 def generar_pdf_analisis(request, pk):
     analisis     = get_object_or_404(Analisis, pk=pk)
     detalles     = _construir_detalles_analisis(analisis)
@@ -396,12 +396,12 @@ def generar_pdf_analisis(request, pk):
         content_type='application/pdf',
         filename=f"analisis_{pk}.pdf"
     )
-
-
+ 
+ 
 # ======================================================
 # ADMIN EXT
 # ======================================================
-
+ 
 @require_GET
 def plantilla_tipo_formato(request, plantilla_id):
     try:
@@ -409,27 +409,27 @@ def plantilla_tipo_formato(request, plantilla_id):
         return JsonResponse({'tipo_formato': plantilla.tipo_formato})
     except Plantilla.DoesNotExist:
         return JsonResponse({'tipo_formato': None}, status=404)
-
-
+ 
+ 
 @require_GET
 def plantilla_propiedades(request, plantilla_id):
     try:
         plantilla = Plantilla.objects.get(pk=plantilla_id)
     except Plantilla.DoesNotExist:
         return JsonResponse({'propiedades': []}, status=404)
-
+ 
     paciente_id = request.GET.get('paciente_id')
     paciente    = None
-
+ 
     if paciente_id:
         try:
             paciente = Paciente.objects.get(pk=paciente_id)
         except Paciente.DoesNotExist:
             paciente = None
-
+ 
     propiedades_qs = plantilla.propiedades.all()
     resultado      = []
-
+ 
     for prop in propiedades_qs:
         if paciente:
             edad_meses = paciente.edad_en_meses
@@ -440,10 +440,10 @@ def plantilla_propiedades(request, plantilla_id):
             ).filter(
                 Q(edad_max_meses__isnull=True) | Q(edad_max_meses__gte=edad_meses)
             ).first()
-
+ 
             if prop.intervalos.exists() and not intervalo:
                 continue
-
+ 
             resultado.append({
                 'id':                    prop.id,
                 'nombre_propiedad':      prop.nombre_propiedad,
@@ -463,14 +463,14 @@ def plantilla_propiedades(request, plantilla_id):
                 'valor_min':             None,
                 'valor_max':             None,
             })
-
+ 
     return JsonResponse({'propiedades': resultado})
-
-
+ 
+ 
 @require_GET
 def propiedades_disponibles(request):
     plantilla_id = request.GET.get('plantilla_id')
-
+ 
     if plantilla_id:
         try:
             plantilla        = Plantilla.objects.get(pk=plantilla_id)
@@ -479,9 +479,9 @@ def propiedades_disponibles(request):
             ids_en_plantilla = []
     else:
         ids_en_plantilla = []
-
+ 
     propiedades = Propiedad.objects.exclude(id__in=ids_en_plantilla).order_by('nombre_propiedad')
-
+ 
     resultado = [
         {
             'id':                    prop.id,
@@ -492,5 +492,5 @@ def propiedades_disponibles(request):
         }
         for prop in propiedades
     ]
-
+ 
     return JsonResponse({'propiedades': resultado})
