@@ -39,31 +39,94 @@ class IntervaloReferenciaSerializer(serializers.ModelSerializer):
  
 class PropiedadSerializer(serializers.ModelSerializer):
     intervalos = IntervaloReferenciaSerializer(many=True, required=False)
- 
+
+    # Campo de ESCRITURA: la app local envía el string "2345-7" y el
+    # serializer resuelve internamente la FK LoincCode correspondiente.
+    # Si no existe en la BD Django, se guarda sin LOINC y se loguea.
+    loinc_num = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text="Código LOINC como string (ej. '2345-7'). Se resuelve a FK internamente.",
+    )
+
+    # Campo de LECTURA: devuelve el string del código LOINC asignado.
+    # La app local lo usa para mostrar el código al editar una propiedad
+    # y para verificar que la sincronización fue correcta.
+    loinc_num_display = serializers.CharField(
+        source='loinc_code.loinc_num',
+        read_only=True,
+        allow_null=True,
+        default=None,
+    )
+
     class Meta:
         model  = Propiedad
         fields = '__all__'
         read_only_fields = ('sincronizado', 'fecha_modificacion')
- 
+
+    def _resolver_loinc(self, loinc_num_str):
+        """
+        Recibe un string como '2345-7' y devuelve el objeto LoincCode
+        correspondiente, o None si no existe en la BD Django.
+
+        Se llama desde create() y update(). En ambos casos, si el string
+        está vacío o es None, devuelve None (equivale a "sin LOINC").
+        Si el código no existe en la BD, loguea una advertencia y devuelve
+        None para no bloquear la creación/edición de la propiedad.
+        """
+        if not loinc_num_str or not loinc_num_str.strip():
+            return None
+        try:
+            return LoincCode.objects.get(loinc_num=loinc_num_str.strip())
+        except LoincCode.DoesNotExist:
+            print(
+                f"  [PropiedadSerializer] ADVERTENCIA: LOINC '{loinc_num_str}' "
+                f"no encontrado en BD Django. Propiedad se guarda sin código LOINC."
+            )
+            return None
+
     def create(self, validated_data):
         intervalos_data = validated_data.pop('intervalos', [])
+        # Extraer el string loinc_num ANTES de crear la instancia, porque
+        # Propiedad.loinc_code espera un objeto FK, no un string.
+        loinc_num_str = validated_data.pop('loinc_num', None)
+
+        if loinc_num_str:
+            validated_data['loinc_code'] = self._resolver_loinc(loinc_num_str)
+
         propiedad = Propiedad.objects.create(**validated_data)
         for int_data in intervalos_data:
             int_data.pop('propiedad', None)
             IntervaloReferencia.objects.create(propiedad=propiedad, **int_data)
         return propiedad
- 
+
     def update(self, instance, validated_data):
         intervalos_data = validated_data.pop('intervalos', None)
+        # Extraer loinc_num string antes de iterar validated_data.
+        # Distinción importante:
+        #   loinc_num_str = None  → campo no enviado, no tocar loinc_code
+        #   loinc_num_str = ""    → limpiar el loinc_code (el usuario lo quitó)
+        loinc_num_str = validated_data.pop('loinc_num', None)
+
         instance.nombre_propiedad = validated_data.get(
             'nombre_propiedad', instance.nombre_propiedad
         )
         instance.unidad = validated_data.get('unidad', instance.unidad)
-        instance.loinc_code = validated_data.get('loinc_code', instance.loinc_code)
-        instance.tipo = validated_data.get('tipo', instance.tipo)
+        instance.tipo   = validated_data.get('tipo',   instance.tipo)
         instance.opciones_cualitativas = validated_data.get(
             'opciones_cualitativas', instance.opciones_cualitativas
         )
+
+        # Solo actualizar loinc_code si el campo vino en el payload.
+        # loinc_num_str="" limpia la FK; cualquier string no vacío la resuelve.
+        if loinc_num_str is not None:
+            instance.loinc_code = self._resolver_loinc(loinc_num_str)
+        else:
+            # Mantener el loinc_code actual si viene explícitamente en validated_data
+            instance.loinc_code = validated_data.get('loinc_code', instance.loinc_code)
+
         instance.save()
         if intervalos_data is not None:
             instance.intervalos.all().delete()
