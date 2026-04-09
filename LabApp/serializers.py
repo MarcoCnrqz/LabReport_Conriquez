@@ -6,8 +6,8 @@ from .models import (
 import base64
 import uuid
 from django.core.files.base import ContentFile
- 
- 
+
+
 # ======================================================
 # UTILIDAD: CAMPO DE IMAGEN BASE64
 # ======================================================
@@ -24,19 +24,19 @@ class Base64ImageField(serializers.ImageField):
                     f"Error decodificando imagen Base64: {str(e)}"
                 )
         return super().to_internal_value(data)
- 
- 
+
+
 # ======================================================
 # SERIALIZERS DE PLANTILLAS
 # ======================================================
- 
+
 class IntervaloReferenciaSerializer(serializers.ModelSerializer):
     class Meta:
         model  = IntervaloReferencia
         fields = '__all__'
         read_only_fields = ('sincronizado', 'fecha_modificacion', 'propiedad')
- 
- 
+
+
 class PropiedadSerializer(serializers.ModelSerializer):
     intervalos = IntervaloReferenciaSerializer(many=True, required=False)
 
@@ -70,11 +70,6 @@ class PropiedadSerializer(serializers.ModelSerializer):
         """
         Recibe un string como '2345-7' y devuelve el objeto LoincCode
         correspondiente, o None si no existe en la BD Django.
-
-        Se llama desde create() y update(). En ambos casos, si el string
-        está vacío o es None, devuelve None (equivale a "sin LOINC").
-        Si el código no existe en la BD, loguea una advertencia y devuelve
-        None para no bloquear la creación/edición de la propiedad.
         """
         if not loinc_num_str or not loinc_num_str.strip():
             return None
@@ -89,8 +84,6 @@ class PropiedadSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         intervalos_data = validated_data.pop('intervalos', [])
-        # Extraer el string loinc_num ANTES de crear la instancia, porque
-        # Propiedad.loinc_code espera un objeto FK, no un string.
         loinc_num_str = validated_data.pop('loinc_num', None)
 
         if loinc_num_str:
@@ -104,10 +97,6 @@ class PropiedadSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         intervalos_data = validated_data.pop('intervalos', None)
-        # Extraer loinc_num string antes de iterar validated_data.
-        # Distinción importante:
-        #   loinc_num_str = None  → campo no enviado, no tocar loinc_code
-        #   loinc_num_str = ""    → limpiar el loinc_code (el usuario lo quitó)
         loinc_num_str = validated_data.pop('loinc_num', None)
 
         instance.nombre_propiedad = validated_data.get(
@@ -119,12 +108,9 @@ class PropiedadSerializer(serializers.ModelSerializer):
             'opciones_cualitativas', instance.opciones_cualitativas
         )
 
-        # Solo actualizar loinc_code si el campo vino en el payload.
-        # loinc_num_str="" limpia la FK; cualquier string no vacío la resuelve.
         if loinc_num_str is not None:
             instance.loinc_code = self._resolver_loinc(loinc_num_str)
         else:
-            # Mantener el loinc_code actual si viene explícitamente en validated_data
             instance.loinc_code = validated_data.get('loinc_code', instance.loinc_code)
 
         instance.save()
@@ -134,11 +120,11 @@ class PropiedadSerializer(serializers.ModelSerializer):
                 int_data.pop('propiedad', None)
                 IntervaloReferencia.objects.create(propiedad=instance, **int_data)
         return instance
- 
- 
+
+
 class PlantillaSerializer(serializers.ModelSerializer):
     propiedades = PropiedadSerializer(many=True, read_only=True)
- 
+
     propiedades_ids = serializers.ListField(
         child=serializers.IntegerField(),
         write_only=True,
@@ -146,12 +132,12 @@ class PlantillaSerializer(serializers.ModelSerializer):
         default=list,
         help_text="IDs de Propiedad (PK en esta BD Django) para asignar al M2M.",
     )
- 
+
     class Meta:
         model  = Plantilla
         fields = '__all__'
         read_only_fields = ('sincronizado', 'fecha_modificacion')
- 
+
     def validate_tipo_formato(self, value):
         choices_validos = [c[0] for c in Plantilla.FORMATOS]
         if value not in choices_validos:
@@ -159,7 +145,7 @@ class PlantillaSerializer(serializers.ModelSerializer):
                   f"en el modelo Django. Se usará 'RESULTADOS' como fallback.")
             return 'RESULTADOS'
         return value
- 
+
     def create(self, validated_data):
         propiedades_ids = validated_data.pop('propiedades_ids', [])
         plantilla = Plantilla.objects.create(**validated_data)
@@ -174,7 +160,7 @@ class PlantillaSerializer(serializers.ModelSerializer):
                 print(f"  [PlantillaSerializer] ADVERTENCIA: IDs de propiedades no encontrados "
                       f"en la BD Django: {no_encontrados}")
         return plantilla
- 
+
     def update(self, instance, validated_data):
         propiedades_ids = validated_data.pop('propiedades_ids', None)
         for attr, value in validated_data.items():
@@ -190,16 +176,16 @@ class PlantillaSerializer(serializers.ModelSerializer):
             if no_encontrados:
                 print(f"  [PlantillaSerializer] ADVERTENCIA: IDs no encontrados: {no_encontrados}")
         return instance
- 
- 
+
+
 # ======================================================
 # SERIALIZERS DE ANÁLISIS
 # ======================================================
- 
+
 class ResultadoSerializer(serializers.ModelSerializer):
     """
     Serializer de LECTURA para ResultadoAnalisis.
- 
+
     nombre_propiedad es un campo real en la BD, se lee y escribe
     directamente. Se incluye explícitamente para garantizar que
     siempre viaja en la respuesta.
@@ -207,21 +193,21 @@ class ResultadoSerializer(serializers.ModelSerializer):
     class Meta:
         model  = ResultadoAnalisis
         fields = ['id', 'loinc_code', 'nombre_propiedad', 'valor', 'unidad']
- 
- 
+
+
 class AnalisisSerializer(serializers.ModelSerializer):
     """
     Serializer principal de Analisis.
- 
+
     ESCRITURA (POST desde la app de escritorio):
       - El cliente manda 'resultados' como lista de dicts con:
           { "nombre_propiedad": "...", "valor": "...", "unidad": "..." }
       - nombres_propiedades_extra     : ["Glucosa", ...]
       - nombres_propiedades_excluidas : ["Hemoglobina", ...]
- 
+
       Se usan NOMBRES en lugar de IDs porque los IDs de la BD local SQLite
       no necesariamente coinciden con los IDs de la BD en la nube.
- 
+
     LECTURA (GET):
       - Devuelve resultados con sus IDs reales de la nube para sincronización.
       - FIX: Incluye 'plantilla_titulo' para que la app local pueda mostrar
@@ -237,7 +223,7 @@ class AnalisisSerializer(serializers.ModelSerializer):
     imagen_resultado2 = Base64ImageField(
         max_length=None, use_url=True, required=False, allow_null=True
     )
- 
+
     # FIX: campo de solo lectura que expone el título de la plantilla como
     # string en cada respuesta GET, resolviendo el AttributeError en la app
     # cuando plantilla es None o un entero.
@@ -247,7 +233,7 @@ class AnalisisSerializer(serializers.ModelSerializer):
         default='',
         allow_null=True,
     )
- 
+
     nombres_propiedades_extra = serializers.ListField(
         child=serializers.CharField(),
         write_only=True,
@@ -262,20 +248,20 @@ class AnalisisSerializer(serializers.ModelSerializer):
         default=list,
         help_text="Nombres de propiedades de la plantilla excluidas en este análisis.",
     )
- 
+
     class Meta:
         model  = Analisis
         fields = '__all__'
- 
+
     def create(self, validated_data):
         resultados_data   = validated_data.pop('resultados', [])
         nombres_extra     = validated_data.pop('nombres_propiedades_extra', [])
         nombres_excluidas = validated_data.pop('nombres_propiedades_excluidas', [])
- 
+
         analisis = Analisis(**validated_data)
         analisis._desde_api = True
         analisis.save()
- 
+
         if nombres_extra:
             props_extra = Propiedad.objects.filter(nombre_propiedad__in=nombres_extra)
             analisis.propiedades_extra.set(props_extra)
@@ -284,7 +270,7 @@ class AnalisisSerializer(serializers.ModelSerializer):
             print(f"  [Serializer] propiedades_extra asignadas : {encontrados}")
             if no_encontrados:
                 print(f"  [Serializer] propiedades_extra NO encontradas: {no_encontrados}")
- 
+
         if nombres_excluidas:
             props_excluidas = Propiedad.objects.filter(nombre_propiedad__in=nombres_excluidas)
             analisis.propiedades_excluidas.set(props_excluidas)
@@ -293,29 +279,30 @@ class AnalisisSerializer(serializers.ModelSerializer):
             print(f"  [Serializer] propiedades_excluidas asignadas : {encontrados}")
             if no_encontrados:
                 print(f"  [Serializer] propiedades_excluidas NO encontradas: {no_encontrados}")
- 
+
         for res_data in resultados_data:
             nombre_prop = (res_data.get('nombre_propiedad') or '').strip()
             valor       = res_data.get('valor', '')
             unidad      = res_data.get('unidad', '')
- 
+
             propiedad_obj = None
             if nombre_prop:
                 propiedad_obj = Propiedad.objects.filter(
                     nombre_propiedad__iexact=nombre_prop
                 ).first()
+
                 if not propiedad_obj:
                     propiedad_obj = Propiedad.objects.create(
                         nombre_propiedad=nombre_prop,
                         unidad=unidad or '',
                     )
                     print(f"  [Serializer] Propiedad on-the-fly: '{nombre_prop}'")
- 
+
             if not propiedad_obj:
                 continue
- 
+
             nombre_para_guardar = nombre_prop or propiedad_obj.nombre_propiedad
- 
+
             resultado_obj, created = ResultadoAnalisis.objects.get_or_create(
                 analisis=analisis,
                 propiedad=propiedad_obj,
@@ -326,7 +313,7 @@ class AnalisisSerializer(serializers.ModelSerializer):
                     'unidad':           unidad or propiedad_obj.unidad or '',
                 }
             )
- 
+
             if not created:
                 resultado_obj.valor = valor
                 if unidad:
@@ -334,18 +321,18 @@ class AnalisisSerializer(serializers.ModelSerializer):
                 if nombre_para_guardar:
                     resultado_obj.nombre_propiedad = nombre_para_guardar
                 resultado_obj.save()
- 
+
         return analisis
- 
+
     def update(self, instance, validated_data):
         resultados_data   = validated_data.pop('resultados', None)
         nombres_extra     = validated_data.pop('nombres_propiedades_extra', None)
         nombres_excluidas = validated_data.pop('nombres_propiedades_excluidas', None)
- 
+
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()
- 
+
         if nombres_extra is not None:
             instance.propiedades_extra.set(
                 Propiedad.objects.filter(nombre_propiedad__in=nombres_extra)
@@ -354,12 +341,12 @@ class AnalisisSerializer(serializers.ModelSerializer):
             instance.propiedades_excluidas.set(
                 Propiedad.objects.filter(nombre_propiedad__in=nombres_excluidas)
             )
- 
+
         if resultados_data is not None:
             for res_data in resultados_data:
                 nombre_prop = (res_data.get('nombre_propiedad') or '').strip()
                 loinc       = res_data.get('loinc_code')
- 
+
                 resultado_existente = None
                 if loinc:
                     resultado_existente = ResultadoAnalisis.objects.filter(
@@ -370,7 +357,7 @@ class AnalisisSerializer(serializers.ModelSerializer):
                         analisis=instance,
                         propiedad__nombre_propiedad__iexact=nombre_prop
                     ).first()
- 
+
                 if resultado_existente:
                     resultado_existente.valor = res_data.get(
                         'valor', resultado_existente.valor
@@ -381,19 +368,47 @@ class AnalisisSerializer(serializers.ModelSerializer):
                     if nombre_prop:
                         resultado_existente.nombre_propiedad = nombre_prop
                     resultado_existente.save()
- 
+
         return instance
- 
- 
+
+
+# ======================================================
+# LABORATORIO (serializer anidado liviano para búsqueda)
+# ======================================================
+
+class LaboratorioSimpleSerializer(serializers.ModelSerializer):
+    """
+    FIX: Serializer liviano que devuelve el laboratorio como objeto
+    {id, nombre_laboratorio} en la respuesta de búsqueda de pacientes.
+    La app local necesita el nombre real para guardarlo en la BD local,
+    no solo el ID (que era lo que devolvía PacienteSerializer antes).
+    """
+    class Meta:
+        model  = Laboratorio
+        fields = ['id', 'nombre_laboratorio']
+
+
 # ======================================================
 # PACIENTE
 # ======================================================
- 
+
 class PacienteSerializer(serializers.ModelSerializer):
     edad            = serializers.ReadOnlyField()
     edad_en_meses   = serializers.ReadOnlyField()
     nombre_completo = serializers.ReadOnlyField()
- 
+
+    # FIX: laboratorio como objeto completo para que la app local
+    # pueda obtener el nombre del laboratorio al crear/editar pacientes.
+    laboratorio = LaboratorioSimpleSerializer(read_only=True)
+
+    # Campo de escritura separado para aceptar el ID al crear/actualizar
+    laboratorio_id = serializers.PrimaryKeyRelatedField(
+        queryset=Laboratorio.objects.all(),
+        source='laboratorio',
+        write_only=True,
+        required=False,
+    )
+
     class Meta:
         model  = Paciente
         fields = [
@@ -406,84 +421,90 @@ class PacienteSerializer(serializers.ModelSerializer):
             'telefono',
             'correo_electronico',
             'laboratorio',
+            'laboratorio_id',
             'edad',
             'edad_en_meses',
             'nombre_completo',
         ]
- 
- 
+
+
 # ======================================================
 # LABORATORIO
 # ======================================================
- 
+
 class LaboratorioSerializer(serializers.ModelSerializer):
     logo = Base64ImageField(
         max_length=None, use_url=True, required=False, allow_null=True
     )
- 
+
     class Meta:
         model  = Laboratorio
         fields = '__all__'
- 
- 
+
+
 # ======================================================
 # USUARIO
 # ======================================================
- 
+
 class UsuarioSerializer(serializers.ModelSerializer):
     firma_digital = Base64ImageField(
         max_length=None, use_url=True, required=False, allow_null=True
     )
- 
+
     class Meta:
         model  = Usuario
         fields = '__all__'
         extra_kwargs = {'password': {'write_only': True}}
- 
- 
+
+
 # ======================================================
 # LOGIN
 # ======================================================
- 
+
 class LoginSerializer(serializers.Serializer):
     correo   = serializers.EmailField()
     password = serializers.CharField(write_only=True)
- 
- 
+
+
 class UsuarioLoginResponseSerializer(serializers.ModelSerializer):
     correo = serializers.EmailField(source='correo_electronico')
- 
+
     class Meta:
         model  = Usuario
         fields = [
             'id', 'nombre', 'correo', 'rol',
             'puesto', 'titulo_abreviado', 'cedula_profesional', 'is_active',
         ]
- 
- 
+
+
 class MiLaboratorioResponseSerializer(serializers.ModelSerializer):
     logo_url = serializers.SerializerMethodField()
- 
+
     class Meta:
         model  = Laboratorio
         fields = ['id', 'nombre_laboratorio', 'ciudad', 'estado', 'logo_url']
- 
+
     def get_logo_url(self, obj):
         request = self.context.get('request')
         if obj.logo and request:
             return request.build_absolute_uri(obj.logo.url)
         return None
- 
- 
+
+
 # ======================================================
 # BÚSQUEDA EN NUBE
 # ======================================================
- 
+
 class PacienteBusquedaNubeSerializer(serializers.ModelSerializer):
     edad            = serializers.ReadOnlyField()
     nombre_completo = serializers.ReadOnlyField()
     analisis        = serializers.SerializerMethodField()
- 
+
+    # FIX: laboratorio como objeto completo para que importar_paciente_desde_nube
+    # en el cliente pueda extraer tanto el id como el nombre_laboratorio real,
+    # en lugar de guardarlo siempre como 'Lab Sincronizado'.
+    laboratorio = LaboratorioSimpleSerializer(read_only=True)
+
     class Meta:
         model  = Paciente
         fields = [
@@ -500,7 +521,7 @@ class PacienteBusquedaNubeSerializer(serializers.ModelSerializer):
             'nombre_completo',
             'analisis',
         ]
- 
+
     def get_analisis(self, obj):
         from .models import Analisis as AnalisisModel
         analisis_qs = AnalisisModel.objects.filter(
