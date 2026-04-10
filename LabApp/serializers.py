@@ -159,6 +159,14 @@ class PlantillaSerializer(serializers.ModelSerializer):
         help_text="Mapa {remote_propiedad_id: loinc_num} que se guarda en PlantillaPropiedad.",
     )
 
+    propiedades_secciones = serializers.DictField(
+        child=serializers.CharField(allow_blank=True),
+        write_only=True,
+        required=False,
+        default=dict,
+        help_text="Mapa {remote_propiedad_id: seccion_nombre} que se guarda en PlantillaPropiedad.",
+    )
+
     class Meta:
         model  = Plantilla
         fields = '__all__'
@@ -188,6 +196,32 @@ class PlantillaSerializer(serializers.ModelSerializer):
                         pp.save()
                     except LoincCode.DoesNotExist:
                         print(f"  [PlantillaSerializer] LOINC '{loinc_num}' no encontrado para prop {prop_id}.")
+            except (ValueError, TypeError):
+                pass
+
+    def _aplicar_seccion_por_propiedad(self, plantilla, propiedades_secciones):
+        """Asigna seccion_id en cada registro PlantillaPropiedad a partir del nombre de sección."""
+        for prop_id_str, seccion_nombre in propiedades_secciones.items():
+            if not seccion_nombre or not seccion_nombre.strip():
+                continue
+            try:
+                prop_id = int(prop_id_str)
+                pp = PlantillaPropiedad.objects.filter(
+                    plantilla=plantilla, propiedad_id=prop_id
+                ).first()
+                if pp:
+                    try:
+                        sec = SeccionPlantilla.objects.get(
+                            plantilla=plantilla,
+                            nombre=seccion_nombre.strip()
+                        )
+                        pp.seccion = sec
+                        pp.save()
+                    except SeccionPlantilla.DoesNotExist:
+                        print(
+                            f"  [PlantillaSerializer] Sección '{seccion_nombre}' "
+                            f"no encontrada en plantilla {plantilla.id} para prop {prop_id}."
+                        )
             except (ValueError, TypeError):
                 pass
 
@@ -225,9 +259,10 @@ class PlantillaSerializer(serializers.ModelSerializer):
         return nombres_recibidos
 
     def create(self, validated_data):
-        propiedades_ids   = validated_data.pop('propiedades_ids', [])
-        secciones_data    = validated_data.pop('secciones_input', [])
-        propiedades_loinc = validated_data.pop('propiedades_loinc', {})
+        propiedades_ids       = validated_data.pop('propiedades_ids', [])
+        secciones_data        = validated_data.pop('secciones_input', [])
+        propiedades_loinc     = validated_data.pop('propiedades_loinc', {})
+        propiedades_secciones = validated_data.pop('propiedades_secciones', {})
 
         plantilla = Plantilla.objects.create(**validated_data)
 
@@ -247,12 +282,16 @@ class PlantillaSerializer(serializers.ModelSerializer):
         if propiedades_loinc:
             self._aplicar_loinc_por_propiedad(plantilla, propiedades_loinc)
 
+        if propiedades_secciones:
+            self._aplicar_seccion_por_propiedad(plantilla, propiedades_secciones)
+
         return plantilla
 
     def update(self, instance, validated_data):
-        propiedades_ids   = validated_data.pop('propiedades_ids', None)
-        secciones_data    = validated_data.pop('secciones_input', None)
-        propiedades_loinc = validated_data.pop('propiedades_loinc', None)
+        propiedades_ids       = validated_data.pop('propiedades_ids', None)
+        secciones_data        = validated_data.pop('secciones_input', None)
+        propiedades_loinc     = validated_data.pop('propiedades_loinc', None)
+        propiedades_secciones = validated_data.pop('propiedades_secciones', None)
 
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
@@ -272,6 +311,9 @@ class PlantillaSerializer(serializers.ModelSerializer):
 
         if propiedades_loinc is not None:
             self._aplicar_loinc_por_propiedad(instance, propiedades_loinc)
+
+        if propiedades_secciones is not None:
+            self._aplicar_seccion_por_propiedad(instance, propiedades_secciones)
 
         return instance
 
