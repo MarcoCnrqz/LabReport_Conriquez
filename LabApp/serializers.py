@@ -136,6 +136,24 @@ class PlantillaSerializer(serializers.ModelSerializer):
         help_text="IDs de Propiedad para asignar al M2M.",
     )
 
+    # ✅ NUEVO: secciones que se crean/sincronizan junto con la plantilla
+    secciones_input = serializers.ListField(
+        child=serializers.DictField(),
+        write_only=True,
+        required=False,
+        default=list,
+        help_text="Lista de secciones [{nombre: str, orden: int}] para crear junto con la plantilla.",
+    )
+
+    # ✅ NUEVO: LOINC por propiedad en el contexto de esta plantilla
+    propiedades_loinc = serializers.DictField(
+        child=serializers.CharField(allow_blank=True),
+        write_only=True,
+        required=False,
+        default=dict,
+        help_text="Mapa {remote_propiedad_id: loinc_num} que se guarda en PlantillaPropiedad.",
+    )
+
     class Meta:
         model  = Plantilla
         fields = '__all__'
@@ -148,9 +166,51 @@ class PlantillaSerializer(serializers.ModelSerializer):
             return 'RESULTADOS'
         return value
 
+    def _aplicar_loinc_por_propiedad(self, plantilla, propiedades_loinc):
+        """Asigna loinc_code_id en cada registro PlantillaPropiedad."""
+        for prop_id_str, loinc_num in propiedades_loinc.items():
+            if not loinc_num or not loinc_num.strip():
+                continue
+            try:
+                prop_id = int(prop_id_str)
+                pp = PlantillaPropiedad.objects.filter(
+                    plantilla=plantilla, propiedad_id=prop_id
+                ).first()
+                if pp:
+                    try:
+                        lc = LoincCode.objects.get(loinc_num=loinc_num.strip())
+                        pp.loinc_code = lc
+                        pp.save()
+                    except LoincCode.DoesNotExist:
+                        print(f"  [PlantillaSerializer] LOINC '{loinc_num}' no encontrado para prop {prop_id}.")
+            except (ValueError, TypeError):
+                pass
+
+    def _sincronizar_secciones(self, plantilla, secciones_data):
+        """Crea o actualiza SeccionPlantilla para la plantilla dada."""
+        nombres_recibidos = set()
+        for sec in secciones_data:
+            nombre = (sec.get('nombre') or '').strip()
+            if not nombre:
+                continue
+            orden = sec.get('orden', 0) or 0
+            obj, created = SeccionPlantilla.objects.get_or_create(
+                plantilla=plantilla, nombre=nombre,
+                defaults={'orden': orden}
+            )
+            if not created and obj.orden != orden:
+                obj.orden = orden
+                obj.save()
+            nombres_recibidos.add(nombre)
+        return nombres_recibidos
+
     def create(self, validated_data):
-        propiedades_ids = validated_data.pop('propiedades_ids', [])
+        propiedades_ids   = validated_data.pop('propiedades_ids', [])
+        secciones_data    = validated_data.pop('secciones_input', [])
+        propiedades_loinc = validated_data.pop('propiedades_loinc', {})
+
         plantilla = Plantilla.objects.create(**validated_data)
+
         if propiedades_ids:
             props = Propiedad.objects.filter(id__in=propiedades_ids)
             plantilla.propiedades.set(props)
@@ -159,13 +219,27 @@ class PlantillaSerializer(serializers.ModelSerializer):
             no_encontrados = [pid for pid in propiedades_ids if pid not in encontrados]
             if no_encontrados:
                 print(f"  [PlantillaSerializer] IDs no encontrados: {no_encontrados}")
+
+        # ✅ Crear secciones
+        if secciones_data:
+            self._sincronizar_secciones(plantilla, secciones_data)
+            print(f"  [PlantillaSerializer] '{plantilla.titulo}' → {len(secciones_data)} secciones procesadas.")
+
+        # ✅ Asignar LOINC por propiedad en el M2M
+        if propiedades_loinc:
+            self._aplicar_loinc_por_propiedad(plantilla, propiedades_loinc)
+
         return plantilla
 
     def update(self, instance, validated_data):
-        propiedades_ids = validated_data.pop('propiedades_ids', None)
+        propiedades_ids   = validated_data.pop('propiedades_ids', None)
+        secciones_data    = validated_data.pop('secciones_input', None)
+        propiedades_loinc = validated_data.pop('propiedades_loinc', None)
+
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()
+
         if propiedades_ids is not None:
             props = Propiedad.objects.filter(id__in=propiedades_ids)
             instance.propiedades.set(props)
@@ -174,6 +248,15 @@ class PlantillaSerializer(serializers.ModelSerializer):
             no_encontrados = [pid for pid in propiedades_ids if pid not in encontrados]
             if no_encontrados:
                 print(f"  [PlantillaSerializer] IDs no encontrados: {no_encontrados}")
+
+        # ✅ Actualizar secciones (sin borrar las existentes que no vienen)
+        if secciones_data is not None:
+            self._sincronizar_secciones(instance, secciones_data)
+
+        # ✅ Actualizar LOINC por propiedad en M2M
+        if propiedades_loinc is not None:
+            self._aplicar_loinc_por_propiedad(instance, propiedades_loinc)
+
         return instance
 
 
