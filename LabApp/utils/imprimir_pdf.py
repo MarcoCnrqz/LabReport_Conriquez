@@ -253,91 +253,147 @@ def generar_pdf_reporte(detalles):
         c.drawString(X3 + PAD, yy - HEADER_H + 0.24*cm, "UNIDAD")
         c.drawString(X4 + PAD, yy - HEADER_H + 0.24*cm, "OPCIONES")
 
-    dibujar_encabezados_tabla(y)
-    y -= HEADER_H
-    y_inicio_tabla = y
+    # ── Compatibilidad: soporta tanto 'resultados_agrupados' (nuevo, con series)
+    #    como 'resultados' (lista plana, legado). Si viene la clave nueva, la usa;
+    #    si no, envuelve la lista plana en un grupo sin nombre para reutilizar
+    #    el mismo código de renderizado.
+    grupos = detalles.get('resultados_agrupados')
+    if not grupos:
+        resultados_planos = detalles.get('resultados', [])
+        grupos = [{'seccion': '', 'orden': 0, 'filas': resultados_planos}]
+
+    SERIE_H = 0.6 * cm   # altura de la barra de serie
+
+    # y_inicio_tabla como lista de un elemento para poder mutarlo desde cerrar_tabla
+    _yit = [y]
+
+    def _iniciar_tabla(yy):
+        """Dibuja encabezados y actualiza y_inicio_tabla. Devuelve nueva y."""
+        dibujar_encabezados_tabla(yy)
+        _yit[0] = yy - HEADER_H
+        return yy - HEADER_H
 
     def cerrar_tabla(y_actual):
         """Dibuja el borde exterior y los separadores de columna."""
         c.setStrokeColor(COLOR_BORDE)
         c.setLineWidth(0.8)
-        c.rect(X0, y_actual, ANCHO_UTIL, y_inicio_tabla - y_actual, fill=0, stroke=1)
+        c.rect(X0, y_actual, ANCHO_UTIL, _yit[0] - y_actual, fill=0, stroke=1)
         c.setLineWidth(0.3)
         c.setStrokeColor(colors.HexColor("#c8cc60"))
         for x_sep in (X1, X2, X3, X4):
-            c.line(x_sep, y_actual, x_sep, y_inicio_tabla)
+            c.line(x_sep, y_actual, x_sep, _yit[0])
 
-    resultados = detalles.get('resultados', [])
+    def dibujar_serie_header(yy, nombre_serie):
+        """Dibuja una barra coloreada con el nombre de la serie."""
+        c.setFillColor(COLOR_PRIMARIO)
+        c.rect(X0, yy - SERIE_H, ANCHO_UTIL, SERIE_H, fill=1, stroke=0)
+        # Franja decorativa inferior
+        c.setFillColor(COLOR_SECUNDARIO)
+        c.rect(X0, yy - SERIE_H, ANCHO_UTIL, 0.1 * cm, fill=1, stroke=0)
+        c.setFillColor(colors.white)
+        _font(c, "Roboto-Bold", 8)
+        c.drawString(X0 + 0.25 * cm, yy - SERIE_H + 0.18 * cm,
+                     nombre_serie.upper())
 
-    for i, res in enumerate(resultados):
-        if y - FILA_H < Y_FOOTER_TOP:
-            cerrar_tabla(y)
-            c.showPage()
-            y = height - 2 * cm
-            dibujar_encabezados_tabla(y)
-            y -= HEADER_H
-            y_inicio_tabla = y
+    fila_global = 0   # contador continuo para fondo alterno entre grupos
+    primer_grupo = True
 
-        # Fondo alterno
-        if i % 2 == 0:
-            c.setFillColor(COLOR_FILA_PAR)
-            c.rect(X0, y - FILA_H, ANCHO_UTIL, FILA_H, fill=1, stroke=0)
+    for grupo in grupos:
+        nombre_serie = (grupo.get('seccion') or '').strip()
+        filas        = grupo.get('filas', [])
+        if not filas:
+            continue
 
-        valor_min = res.get('valor_min')
-        valor_max = res.get('valor_max')
-        color_val = _color_resultado(res.get('valor', ''), valor_min, valor_max)
+        # — Encabezado de serie (si tiene nombre) o encabezado inicial —
+        if nombre_serie:
+            # ¿Cabe barra de serie + cabecera de tabla + al menos 1 fila?
+            espacio_min = SERIE_H + HEADER_H + FILA_H
+            if not primer_grupo and y - espacio_min < Y_FOOTER_TOP:
+                cerrar_tabla(y)
+                c.showPage()
+                y = height - 2 * cm
 
-        PAD  = 0.18 * cm
-        Y_TX = y - FILA_H + 0.18*cm
-
-        # — PRUEBA —
-        _font(c, "Roboto", 7.5)
-        c.setFillColor(colors.black)
-        c.drawString(X0 + PAD, Y_TX, str(res.get('nombre_propiedad', '')))
-
-        # — RESULTADO —
-        c.setFillColor(color_val)
-        _font(c, "Roboto-Bold" if color_val != colors.black else "Roboto", 7.5)
-        c.drawString(X1 + PAD, Y_TX, str(res.get('valor', '')))
-
-        # — REFERENCIA —
-        _font(c, "Roboto", 7.5)
-        c.setFillColor(COLOR_TEXTO_MED)
-        if valor_min is not None and valor_max is not None:
-            rango_txt = f"{valor_min} - {valor_max}"
-        elif valor_min is not None:
-            rango_txt = f">= {valor_min}"
-        elif valor_max is not None:
-            rango_txt = f"<= {valor_max}"
+            dibujar_serie_header(y, nombre_serie)
+            y -= SERIE_H
+            y = _iniciar_tabla(y)
         else:
-            rango_txt = "-"
-        c.drawString(X2 + PAD, Y_TX, rango_txt)
+            # Grupo sin serie: dibujar encabezado de tabla normal si es el primero
+            if primer_grupo:
+                y = _iniciar_tabla(y)
+            # Si no es el primero y no tiene serie, solo separar un poco
+            # (los grupos sin serie no suelen mezclarse con los que sí tienen)
 
-        # — UNIDAD — (None → N/A)
-        unidad_str = _sanitizar_unidad(res.get('unidad'))
-        c.setFillColor(COLOR_TEXTO_MED)
-        c.drawString(X3 + PAD, Y_TX, unidad_str)
+        for res in filas:
+            if y - FILA_H < Y_FOOTER_TOP:
+                cerrar_tabla(y)
+                c.showPage()
+                y = height - 2 * cm
+                y = _iniciar_tabla(y)
 
-        # — OPCIONES CUALITATIVAS —
-        opciones_str = res.get('opciones_cualitativas', '') or ''
-        if opciones_str:
-            partes           = [p.strip() for p in opciones_str.split(',') if p.strip()]
-            opciones_display = " / ".join(partes)
-        else:
-            opciones_display = "-"
+            # Fondo alterno (continuo entre grupos para consistencia visual)
+            if fila_global % 2 == 0:
+                c.setFillColor(COLOR_FILA_PAR)
+                c.rect(X0, y - FILA_H, ANCHO_UTIL, FILA_H, fill=1, stroke=0)
 
-        _font(c, "Roboto-Italic", 7)
-        c.setFillColor(colors.HexColor("#666666"))
-        c.drawString(X4 + PAD, Y_TX, opciones_display)
+            valor_min = res.get('valor_min')
+            valor_max = res.get('valor_max')
+            color_val = _color_resultado(res.get('valor', ''), valor_min, valor_max)
 
-        # Línea divisoria entre filas
-        c.setStrokeColor(colors.HexColor("#dce07a"))
-        c.setLineWidth(0.3)
-        c.line(X0, y - FILA_H, MARGEN_DER, y - FILA_H)
+            PAD  = 0.18 * cm
+            Y_TX = y - FILA_H + 0.18 * cm
 
-        y -= FILA_H
+            # — PRUEBA —
+            _font(c, "Roboto", 7.5)
+            c.setFillColor(colors.black)
+            c.drawString(X0 + PAD, Y_TX, str(res.get('nombre_propiedad', '')))
 
-    cerrar_tabla(y)
+            # — RESULTADO —
+            c.setFillColor(color_val)
+            _font(c, "Roboto-Bold" if color_val != colors.black else "Roboto", 7.5)
+            c.drawString(X1 + PAD, Y_TX, str(res.get('valor', '')))
+
+            # — REFERENCIA —
+            _font(c, "Roboto", 7.5)
+            c.setFillColor(COLOR_TEXTO_MED)
+            if valor_min is not None and valor_max is not None:
+                rango_txt = f"{valor_min} - {valor_max}"
+            elif valor_min is not None:
+                rango_txt = f">= {valor_min}"
+            elif valor_max is not None:
+                rango_txt = f"<= {valor_max}"
+            else:
+                rango_txt = "-"
+            c.drawString(X2 + PAD, Y_TX, rango_txt)
+
+            # — UNIDAD — (None → N/A)
+            unidad_str = _sanitizar_unidad(res.get('unidad'))
+            c.setFillColor(COLOR_TEXTO_MED)
+            c.drawString(X3 + PAD, Y_TX, unidad_str)
+
+            # — OPCIONES CUALITATIVAS —
+            opciones_str = res.get('opciones_cualitativas', '') or ''
+            if opciones_str:
+                partes           = [p.strip() for p in opciones_str.split(',') if p.strip()]
+                opciones_display = " / ".join(partes)
+            else:
+                opciones_display = "-"
+
+            _font(c, "Roboto-Italic", 7)
+            c.setFillColor(colors.HexColor("#666666"))
+            c.drawString(X4 + PAD, Y_TX, opciones_display)
+
+            # Línea divisoria entre filas
+            c.setStrokeColor(colors.HexColor("#dce07a"))
+            c.setLineWidth(0.3)
+            c.line(X0, y - FILA_H, MARGEN_DER, y - FILA_H)
+
+            y -= FILA_H
+            fila_global += 1
+
+        # Cerrar la tabla al terminar cada grupo
+        cerrar_tabla(y)
+        y -= 0.2 * cm   # pequeña separación entre grupos
+        primer_grupo = False
     y -= 0.3 * cm  # Separación entre tabla y bloque de metadatos
 
     # =========================================================================

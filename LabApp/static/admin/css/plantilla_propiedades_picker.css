@@ -1,0 +1,324 @@
+/*
+ * plantilla_propiedades_picker.css
+ * Coloca en: <tu_app>/static/admin/css/plantilla_propiedades_picker.css
+ */
+
+/* ── Contenedor raíz ────────────────────────────────────────────────────── */
+#pp-picker-root {
+  margin: 16px 0 24px;
+}
+.pp-root {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 13px;
+  color: #222;
+}
+
+/* ── Título ─────────────────────────────────────────────────────────────── */
+.pp-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #444;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0 0 12px;
+}
+
+/* ── Layout ─────────────────────────────────────────────────────────────── */
+.pp-layout {
+  display: grid;
+  grid-template-columns: 230px 1fr;
+  gap: 14px;
+  align-items: start;
+}
+.pp-col-label {
+  font-size: 12px;
+  color: #666;
+  margin: 0 0 5px;
+}
+#pp-count {
+  color: #999;
+  font-size: 11px;
+}
+
+/* ── Panel ──────────────────────────────────────────────────────────────── */
+.pp-panel {
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #fff;
+}
+
+/* ── Búsqueda de propiedades ─────────────────────────────────────────────── */
+.pp-search {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  border: none;
+  border-bottom: 1px solid #ddd;
+  padding: 7px 10px;
+  font-size: 13px;
+  background: #fafafa;
+  outline: none;
+  color: #222;
+}
+.pp-search:focus { background: #fff; border-bottom-color: #79aec8; }
+
+/* ── Lista de propiedades ────────────────────────────────────────────────── */
+.pp-list { max-height: 300px; overflow-y: auto; }
+
+.pp-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  cursor: pointer;
+  border-bottom: 1px solid #f2f2f2;
+  transition: background 0.1s;
+  user-select: none;
+}
+.pp-item:last-child { border-bottom: none; }
+.pp-item:hover { background: #e8f4fd; }
+.pp-item--sel { background: #dbeeff; color: #1558a0; }
+.pp-item--sel:hover { background: #cce3ff; }
+.pp-item-name { flex: 1; font-size: 13px; }
+.pp-check { margin-left: auto; font-size: 12px; color: #1558a0; font-weight: 600; }
+.pp-empty-msg {
+  padding: 20px 14px;
+  text-align: center;
+  color: #aaa;
+  font-size: 12px;
+  font-style: italic;
+}
+
+/* ── Puntos de tipo ──────────────────────────────────────────────────────── */
+.pp-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.pp-dot--c { background: #1a73e8; }
+.pp-dot--q { background: #1a8a5a; }
+
+/* ── Tabla ───────────────────────────────────────────────────────────────── */
+.pp-table-wrap { overflow-x: auto; }
+
+#pp-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+#pp-table th {
+  font-size: 11px;
+  font-weight: 600;
+  color: #555;
+  text-align: left;
+  padding: 6px 10px;
+  background: #f5f5f5;
+  border-bottom: 1px solid #ddd;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+#pp-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid #f2f2f2;
+  vertical-align: middle;
+}
+#pp-table tr:last-child td { border-bottom: none; }
+.pp-td-name { font-weight: 500; white-space: nowrap; }
+
+/* ── Badges ──────────────────────────────────────────────────────────────── */
+.pp-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+.pp-badge--c { background: #dbeeff; color: #1558a0; }
+.pp-badge--q { background: #d6f5e6; color: #0f6e42; }
+
+/* ── Celda LOINC ─────────────────────────────────────────────────────────── */
+.pp-td-loinc { min-width: 200px; }
+
+.pp-loinc-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pp-loinc-display {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: #333;
+  min-height: 20px;
+}
+.pp-loinc-desc {
+  color: #888;
+  font-size: 11px;
+}
+.pp-loinc-empty {
+  color: #bbb;
+  font-style: italic;
+  font-size: 12px;
+}
+
+/* Botones LOINC (lupa + X) en una fila */
+.pp-loinc-actions {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.pp-loinc-btn {
+  background: #f0f4ff;
+  border: 1px solid #c0d0f0;
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 3px 7px;
+  font-size: 13px;
+  line-height: 1;
+  color: #1558a0;
+  transition: background 0.1s;
+}
+.pp-loinc-btn:hover { background: #dbeeff; }
+.pp-loinc-clear {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #bbb;
+  font-size: 12px;
+  padding: 2px 4px;
+  border-radius: 3px;
+  line-height: 1;
+}
+.pp-loinc-clear:hover { background: #fdeaea; color: #c0392b; }
+
+/* ── Buscador LOINC inline (debajo de la celda) ─────────────────────────── */
+.pp-loinc-search-wrap {
+  display: none;
+  position: relative;
+  width: 100%;
+}
+.pp-loinc-search-wrap.pp-loinc-search-open {
+  display: block;
+}
+
+.pp-loinc-search-inp {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #79aec8;
+  border-radius: 4px;
+  padding: 5px 8px;
+  font-size: 12px;
+  outline: none;
+  background: #fff;
+  color: #222;
+}
+.pp-loinc-search-inp:focus { border-color: #1558a0; }
+
+/* Dropdown de resultados LOINC */
+.pp-loinc-dropdown {
+  position: absolute;
+  z-index: 9999;
+  top: calc(100% + 3px);
+  left: 0;
+  min-width: 320px;
+  max-height: 240px;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid #c0d0f0;
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.16);
+}
+.pp-lm-hint {
+  padding: 12px 14px;
+  color: #aaa;
+  font-size: 12px;
+  font-style: italic;
+  text-align: center;
+}
+.pp-lm-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 7px 12px;
+  border-bottom: 1px solid #f0f0f0;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.pp-lm-row:last-child { border-bottom: none; }
+.pp-lm-row:hover { background: #e8f4fd; }
+.pp-lm-num {
+  font-size: 12px;
+  font-weight: 700;
+  color: #1558a0;
+  white-space: nowrap;
+  min-width: 72px;
+}
+.pp-lm-name {
+  flex: 1;
+  font-size: 12px;
+  color: #222;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pp-lm-sys {
+  font-size: 11px;
+  color: #999;
+  white-space: nowrap;
+}
+
+/* ── Celda Serie ─────────────────────────────────────────────────────────── */
+.pp-td-serie { min-width: 130px; }
+.pp-sel-serie {
+  width: 100%;
+  min-width: 120px;
+  height: 28px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  padding: 0 6px;
+  font-size: 12px;
+  background: #fff;
+  color: #222;
+  cursor: pointer;
+}
+.pp-sel-serie:focus { outline: none; border-color: #79aec8; }
+
+/* ── Orden (solo lectura, número) ────────────────────────────────────────── */
+.pp-td-orden { text-align: center; width: 55px; }
+.pp-orden-num {
+  display: inline-block;
+  width: 30px;
+  height: 26px;
+  line-height: 26px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: #555;
+  background: #f5f5f5;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+}
+
+/* ── Botón quitar fila ───────────────────────────────────────────────────── */
+.pp-remove {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #bbb;
+  font-size: 14px;
+  padding: 3px 6px;
+  border-radius: 3px;
+  line-height: 1;
+  transition: background 0.1s, color 0.1s;
+}
+.pp-remove:hover { background: #fdeaea; color: #c0392b; }
+
+/* ── Tabla vacía ─────────────────────────────────────────────────────────── */
+.pp-empty {
+  padding: 28px 16px;
+  text-align: center;
+  color: #aaa;
+  font-size: 13px;
+  font-style: italic;
+}
+
+/* ── Notas al pie ────────────────────────────────────────────────────────── */
+.pp-hint { font-size: 11px; color: #888; margin: 6px 0 0; line-height: 1.5; }

@@ -49,7 +49,34 @@
         var seccion = getSectionImagen();
         if (!seccion) return;
         var fieldset = seccion.closest('fieldset') || seccion;
-        fieldset.style.display = (tipoFormato === 'IMAGENES_RESULTADOS') ? '' : 'none';
+
+        if (tipoFormato === 'IMAGENES_RESULTADOS') {
+            // Mostrar: restaurar estilos normales
+            fieldset.style.visibility = '';
+            fieldset.style.position   = '';
+            fieldset.style.height     = '';
+            fieldset.style.overflow   = '';
+            fieldset.style.padding    = '';
+            fieldset.style.margin     = '';
+            fieldset.style.border     = '';
+            // Habilitar los inputs de archivo para que el browser los envíe
+            fieldset.querySelectorAll('input[type="file"]').forEach(function (inp) {
+                inp.disabled = false;
+            });
+        } else {
+            // Ocultar VISUALMENTE pero sin display:none — así los <input type="file">
+            // siguen en el DOM activo y el browser los incluye en el POST.
+            // Si el usuario no seleccionó archivo, el campo queda vacío (sin cambio),
+            // que es el comportamiento correcto para no borrar imágenes existentes.
+            fieldset.style.visibility = 'hidden';
+            fieldset.style.position   = 'absolute';
+            fieldset.style.height     = '0';
+            fieldset.style.overflow   = 'hidden';
+            fieldset.style.padding    = '0';
+            fieldset.style.margin     = '0';
+            fieldset.style.border     = 'none';
+            // NO deshabilitar — queremos que los inputs existan pero vacíos
+        }
     }
 
     // -------------------------------------------------------
@@ -645,12 +672,9 @@
     // -------------------------------------------------------
 
     function init() {
-        // Ocultar sección imágenes al inicio
-        var seccion = getSectionImagen();
-        if (seccion) {
-            var fieldset = seccion.closest('fieldset') || seccion;
-            fieldset.style.display = 'none';
-        }
+        // Ocultar sección imágenes al inicio usando visibility (NO display:none)
+        // para que los <input type="file"> sigan en el DOM y se envíen al POST.
+        mostrarOcultarImagenes('');
 
         bindSelect2('id_plantilla', function () {
             if (!debeBloquearPrecarga()) onSeleccionCambio();

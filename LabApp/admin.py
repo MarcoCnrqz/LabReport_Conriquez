@@ -1,34 +1,37 @@
+import json
+
 from django.contrib import admin
 from django import forms
+from django.http import JsonResponse
 from django.utils.html import format_html
 from django.db.models import Q
 from django.utils.safestring import mark_safe
- 
+
 from .models import (
     Usuario, Laboratorio, Paciente, LoincCode,
-    Propiedad, IntervaloReferencia, Plantilla,
-    Analisis, ResultadoAnalisis,
+    Propiedad, IntervaloReferencia, Plantilla, PlantillaPropiedad,
+    SeccionPlantilla, Analisis, ResultadoAnalisis,
 )
- 
- 
+
+
 # =============================================================================
 # 1. LISTAS DE SUGERENCIAS
 # =============================================================================
- 
+
 UNIDADES_SUGERIDAS = [
     'g/dL', '%',
     '×10⁶/µL', '×10⁶/mm³', '×10¹²/L',
     '×10³/µL', '/µL', '×10⁹/L',
     'mg/dL', 'U/L', 'mmol/L',
 ]
- 
+
 OPCIONES_CUALITATIVAS_SUGERIDAS = [
     'POSITIVO,NEGATIVO',
     'REACTIVO,NO REACTIVO',
     'PRESENTE,AUSENTE',
     'LEVE,MODERADO,SEVERO',
 ]
- 
+
 TIPOS_MUESTRA_SUGERIDOS = [
     'Sangre total con EDTA',
     'Suero',
@@ -39,7 +42,7 @@ TIPOS_MUESTRA_SUGERIDOS = [
     'Heces',
     'Exudado faríngeo',
 ]
- 
+
 METODOS_SUGERIDOS = [
     'Impedancia eléctrica y microscópica',
     'Espectrofotometría',
@@ -50,40 +53,40 @@ METODOS_SUGERIDOS = [
     'Cultivo microbiológico',
     'PCR',
 ]
- 
- 
+
+
 # =============================================================================
 # 2. WIDGET BASE CON DROPDOWN DE SUGERENCIAS
 # =============================================================================
- 
+
 class SugerenciasDropdownWidget(forms.TextInput):
     """
     Widget TextInput con un botón 📋 que despliega un dropdown de sugerencias.
     Al hacer clic en una sugerencia, se escribe en el input automáticamente.
     """
- 
+
     def __init__(self, sugerencias, placeholder='', input_width='240px', *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.sugerencias   = sugerencias
         self.placeholder   = placeholder
         self.input_width   = input_width
- 
+
     def render(self, name, value, attrs=None, renderer=None):
         attrs = attrs or {}
         attrs['autocomplete'] = 'off'
         attrs['placeholder']  = self.placeholder
         attrs['style']        = f'width:{self.input_width};vertical-align:middle;'
- 
+
         dropdown_id = f'dd_{name}'
         input_html  = super().render(name, value, attrs, renderer)
- 
+
         items_html = ''.join(
             f'<div class="sdw-item" onclick="sdwElegir(\'{dropdown_id}\', this)">'
             f'{item}'
             f'</div>'
             for item in self.sugerencias
         )
- 
+
         html = f"""
 <style id="sdw-style" data-sdw-once>
   .sdw-wrap {{
@@ -133,31 +136,31 @@ class SugerenciasDropdownWidget(forms.TextInput):
     background: #e8f0fe;
   }}
 </style>
- 
+
 <script>
 (function() {{
   if (window._sdwReady) return;
   window._sdwReady = true;
- 
+
   window.sdwToggle = function(btn, menuId) {{
     var menu = document.getElementById(menuId);
     if (!menu) return;
     var isOpen = menu.style.display === 'block';
- 
+
     document.querySelectorAll('.sdw-menu').forEach(function(m) {{
       m.style.display = 'none';
     }});
- 
+
     if (!isOpen) {{
       var rect       = btn.getBoundingClientRect();
       var menuHeight = 260;
       var spaceBelow = window.innerHeight - rect.bottom;
       var spaceAbove = rect.top;
- 
+
       menu.style.display = 'block';
       var realHeight = Math.min(menu.scrollHeight, menuHeight);
       menu.style.display = 'none';
- 
+
       if (spaceAbove >= realHeight || spaceAbove > spaceBelow) {{
         menu.style.top = (rect.top - realHeight - 4) + 'px';
       }} else {{
@@ -168,7 +171,7 @@ class SugerenciasDropdownWidget(forms.TextInput):
       menu.style.display = 'block';
     }}
   }};
- 
+
   ['scroll','resize'].forEach(function(ev) {{
     window.addEventListener(ev, function() {{
       document.querySelectorAll('.sdw-menu').forEach(function(m) {{
@@ -176,7 +179,7 @@ class SugerenciasDropdownWidget(forms.TextInput):
       }});
     }}, true);
   }});
- 
+
   window.sdwElegir = function(menuId, item) {{
     var menu = document.getElementById(menuId);
     if (!menu) return;
@@ -189,7 +192,7 @@ class SugerenciasDropdownWidget(forms.TextInput):
     }}
     menu.style.display = 'none';
   }};
- 
+
   document.addEventListener('click', function(e) {{
     if (!e.target.closest('.sdw-btn') && !e.target.closest('.sdw-menu')) {{
       document.querySelectorAll('.sdw-menu').forEach(function(m) {{
@@ -199,7 +202,7 @@ class SugerenciasDropdownWidget(forms.TextInput):
   }});
 }})();
 </script>
- 
+
 <span class="sdw-wrap">
   {input_html}
   <button type="button"
@@ -212,12 +215,12 @@ class SugerenciasDropdownWidget(forms.TextInput):
 </div>
 """
         return mark_safe(html)
- 
- 
+
+
 # =============================================================================
 # 3. FORMULARIOS
 # =============================================================================
- 
+
 class PropiedadForm(forms.ModelForm):
     unidad = forms.CharField(
         required=False,
@@ -236,15 +239,15 @@ class PropiedadForm(forms.ModelForm):
         ),
         help_text='Opciones separadas por coma. Ej: POSITIVO,NEGATIVO',
     )
- 
+
     class Meta:
         model  = Propiedad
         fields = '__all__'
- 
+
     class Media:
         js = ('admin/js/propiedad_tipo_toggle.js',)
- 
- 
+
+
 class AnalisisAdminForm(forms.ModelForm):
     tipo_muestra = forms.CharField(
         required=False,
@@ -266,24 +269,24 @@ class AnalisisAdminForm(forms.ModelForm):
         label='Método',
         help_text='Ej: Impedancia eléctrica y microscópica, Espectrofotometría',
     )
- 
+
     class Meta:
         model  = Analisis
         fields = '__all__'
- 
+
     class Media:
         js = ('admin/js/analisis_imagenes_toggle.js',)
- 
- 
+
+
 class ResultadoAnalisisForm(forms.ModelForm):
     class Meta:
         model  = ResultadoAnalisis
         fields = '__all__'
- 
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         propiedad = self._get_propiedad()
- 
+
         if propiedad and propiedad.tipo == 'CUALITATIVO':
             opciones = propiedad.get_opciones_lista()
             if opciones:
@@ -301,7 +304,7 @@ class ResultadoAnalisisForm(forms.ModelForm):
                 'title': 'No aplica para propiedades cualitativas',
             })
             self.initial['unidad'] = 'N/A'
- 
+
     def _get_propiedad(self):
         if self.instance and self.instance.pk:
             try:
@@ -309,45 +312,43 @@ class ResultadoAnalisisForm(forms.ModelForm):
             except Exception:
                 return None
         return None
- 
- 
+
+
 # =============================================================================
 # 4. INLINES
 # =============================================================================
- 
+
 class IntervaloReferenciaInline(admin.TabularInline):
     model  = IntervaloReferencia
     extra  = 1
     fields = ('edad_min_meses', 'edad_max_meses', 'sexo', 'valor_min', 'valor_max')
- 
- 
+
+
 class ResultadoAnalisisInline(admin.TabularInline):
     model      = ResultadoAnalisis
     form       = ResultadoAnalisisForm
     extra      = 0
     can_delete = True
- 
+
     fields          = ('propiedad', 'nombre_propiedad', 'valor', 'unidad',
                        'col_intervalo_referencia', 'col_valor_coloreado')
     readonly_fields = ('propiedad', 'nombre_propiedad',
                        'col_intervalo_referencia', 'col_valor_coloreado')
- 
+
     def get_max_num(self, request, obj=None, **kwargs):
         if obj is None:
             return None
         return obj.resultados.count()
- 
+
     def has_add_permission(self, request, obj=None):
         return obj is None
- 
+
     def _esta_excluida(self, obj):
-        """Devuelve True si la propiedad de este resultado está en propiedades_excluidas."""
         if not obj.pk or not obj.analisis:
             return False
         return obj.analisis.propiedades_excluidas.filter(pk=obj.propiedad_id).exists()
- 
+
     def col_intervalo_referencia(self, obj):
-        # Si está excluida mostramos indicador gris en lugar de la referencia
         if self._esta_excluida(obj):
             return format_html(
                 '<span style="color:#aaa;font-style:italic;">— Excluida —</span>'
@@ -373,9 +374,8 @@ class ResultadoAnalisisInline(admin.TabularInline):
             return f"{intervalo.valor_min} - {intervalo.valor_max} {obj.unidad or ''}"
         return "-"
     col_intervalo_referencia.short_description = "Referencia / Opciones"
- 
+
     def col_valor_coloreado(self, obj):
-        # Si está excluida: badge gris con candado, no aparecerá en el PDF
         if self._esta_excluida(obj):
             return format_html(
                 '<span style="'
@@ -410,81 +410,322 @@ class ResultadoAnalisisInline(admin.TabularInline):
                 return obj.valor
         return obj.valor
     col_valor_coloreado.short_description = "Estado del Valor"
- 
- 
+
+
+class SeccionPlantillaInline(admin.TabularInline):
+    """
+    Inline para gestionar las SERIES DE PLANTILLA (ej. Serie Roja, Serie Blanca)
+    dentro de una Plantilla. Se muestra arriba del picker de propiedades para que
+    el usuario defina las series antes de asignarlas a cada propiedad.
+    """
+    model        = SeccionPlantilla
+    extra        = 1
+    fields       = ('nombre', 'orden')
+    ordering     = ('orden',)
+    verbose_name = 'Serie de plantilla'
+    verbose_name_plural = 'Series de plantilla'
+
+
+class PlantillaPropiedadInline(admin.TabularInline):
+    model               = PlantillaPropiedad
+    extra               = 1
+    autocomplete_fields = ('propiedad', 'loinc_code')
+    fields              = ('propiedad', 'loinc_code', 'seccion', 'orden')
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        # Filtrar el dropdown de sección para mostrar solo las de la plantilla actual
+        if db_field.name == 'seccion':
+            obj_id = request.resolver_match.kwargs.get('object_id')
+            if obj_id:
+                kwargs['queryset'] = SeccionPlantilla.objects.filter(plantilla_id=obj_id)
+            else:
+                kwargs['queryset'] = SeccionPlantilla.objects.none()
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+
 # =============================================================================
 # 5. REGISTRO DE MODELOS
 # =============================================================================
- 
+
 @admin.register(Usuario)
 class UsuarioAdmin(admin.ModelAdmin):
     list_display      = ('id', 'nombre', 'correo_electronico', 'rol', 'puesto', 'cedula_profesional', 'is_active')
     list_filter       = ('rol', 'is_active')
     search_fields     = ('nombre', 'correo_electronico', 'cedula_profesional')
     filter_horizontal = ('laboratorios',)
- 
+
     def get_form(self, request, obj=None, **kwargs):
         form = super().get_form(request, obj, **kwargs)
         form.base_fields['password'].widget = forms.PasswordInput(render_value=True)
         return form
- 
+
     def save_model(self, request, obj, form, change):
         if form.cleaned_data.get('password') and ('password' in form.changed_data or not change):
             obj.set_password(form.cleaned_data['password'])
         super().save_model(request, obj, form, change)
- 
- 
+
+
 @admin.register(Laboratorio)
 class LaboratorioAdmin(admin.ModelAdmin):
     list_display  = ('nombre_laboratorio', 'ciudad', 'responsable_sanitario_principal')
     search_fields = ('nombre_laboratorio', 'ciudad')
- 
- 
+
+
 @admin.register(Paciente)
 class PacienteAdmin(admin.ModelAdmin):
     search_fields = ('nombre', 'apellido_paterno', 'apellido_materno')
     list_display  = ('id', 'nombre_completo', 'sexo', 'get_edad', 'laboratorio')
     list_filter   = ('sexo', 'laboratorio')
- 
+
     def get_edad(self, obj):
         años  = obj.edad
         meses = obj.edad_en_meses
         return f"{meses} meses" if años < 2 else f"{años} años"
     get_edad.short_description = "Edad"
- 
- 
+
+
 @admin.register(Propiedad)
 class PropiedadAdmin(admin.ModelAdmin):
     form                = PropiedadForm
     list_display        = ('nombre_propiedad', 'tipo', 'unidad', 'get_plantillas')
     list_filter         = ('tipo',)
     search_fields       = ('nombre_propiedad',)
-    autocomplete_fields = ('loinc_code',)
     inlines             = [IntervaloReferenciaInline]
- 
+
     def get_readonly_fields(self, request, obj=None):
         return ('tipo',) if obj else ()
- 
+
     def get_plantillas(self, obj):
         nombres = obj.plantillas.values_list('titulo', flat=True)
         return ', '.join(nombres) if nombres else '—'
     get_plantillas.short_description = "Usada en plantillas"
- 
+
     class Media:
         js = ('admin/js/propiedad_tipo_toggle.js', 'admin/js/intervalo_toggle.js')
- 
- 
+
+
+@admin.register(PlantillaPropiedad)
+class PlantillaPropiedadAdmin(admin.ModelAdmin):
+    list_display        = ('plantilla', 'propiedad', 'loinc_code', 'seccion', 'orden')
+    list_filter         = ('plantilla',)
+    search_fields       = ('plantilla__titulo', 'propiedad__nombre_propiedad', 'loinc_code__loinc_num')
+    autocomplete_fields = ('plantilla', 'propiedad', 'loinc_code')
+
+
+@admin.register(SeccionPlantilla)
+class SeccionPlantillaAdmin(admin.ModelAdmin):
+    list_display  = ('plantilla', 'nombre', 'orden')
+    list_filter   = ('plantilla',)
+    search_fields = ('nombre', 'plantilla__titulo')
+    ordering      = ('plantilla', 'orden')
+    verbose_name  = 'Serie de plantilla'
+
+
 @admin.register(Plantilla)
 class PlantillaAdmin(admin.ModelAdmin):
-    search_fields     = ('titulo',)
-    list_display      = ('titulo', 'tipo_formato', 'get_num_propiedades', 'fecha_modificacion')
-    filter_horizontal = ('propiedades',)
- 
+    search_fields = ('titulo',)
+    list_display  = ('titulo', 'tipo_formato', 'loinc_code', 'get_num_propiedades', 'fecha_modificacion')
+    autocomplete_fields = ('loinc_code',)
+    # SeccionPlantillaInline va PRIMERO para que el usuario defina las series
+    # antes de asignarlas a las propiedades en el picker.
+    inlines       = [SeccionPlantillaInline, PlantillaPropiedadInline]
+
     def get_num_propiedades(self, obj):
         return obj.propiedades.count()
     get_num_propiedades.short_description = "N° Propiedades"
- 
- 
+
+    # ── Endpoint AJAX para buscar códigos LOINC ───────────────────────────────
+    def get_urls(self):
+        from django.urls import path
+        urls = super().get_urls()
+        custom = [
+            path(
+                'loinc-buscar/',
+                self.admin_site.admin_view(self._loinc_buscar),
+                name='plantilla_loinc_buscar',
+            ),
+            path(
+                '<int:plantilla_id>/secciones/',
+                self.admin_site.admin_view(self._secciones_json),
+                name='plantilla_secciones_json',
+            ),
+        ]
+        return custom + urls
+
+    def _loinc_buscar(self, request):
+        q       = request.GET.get('q', '').strip()
+        results = []
+        if q:
+            qs = LoincCode.objects.filter(
+                Q(loinc_num__icontains=q)  |
+                Q(shortname__icontains=q)  |
+                Q(component__icontains=q)
+            ).order_by('loinc_num')[:20]
+            results = [
+                {
+                    'id':        lc.pk,
+                    'loinc_num': lc.loinc_num,
+                    'shortname': lc.shortname or '',
+                    'component': lc.component or '',
+                    'system':    lc.system    or '',
+                }
+                for lc in qs
+            ]
+        return JsonResponse({'results': results})
+
+    def _secciones_json(self, request, plantilla_id):
+        """
+        Devuelve las secciones de una plantilla para que el picker JS
+        pueda construir el dropdown de sección por cada propiedad.
+        GET /admin/LabApp/plantilla/<id>/secciones/
+        """
+        secciones = SeccionPlantilla.objects.filter(
+            plantilla_id=plantilla_id
+        ).order_by('orden').values('id', 'nombre', 'orden')
+        return JsonResponse({'secciones': list(secciones)})
+
+    # ── JSON para el picker ───────────────────────────────────────────────────
+    def _build_json_scripts(self, obj):
+        all_props = list(
+            Propiedad.objects
+            .all()
+            .order_by('nombre_propiedad')
+            .values('id', 'nombre_propiedad', 'tipo')
+        )
+        props_data = [
+            {'id': p['id'], 'nombre': p['nombre_propiedad'], 'tipo': p['tipo']}
+            for p in all_props
+        ]
+
+        existing_data = []
+        secciones_data = []
+
+        if obj and obj.pk:
+            # Secciones definidas para esta plantilla
+            for sec in obj.secciones.order_by('orden'):
+                secciones_data.append({
+                    'id':     sec.pk,
+                    'nombre': sec.nombre,
+                    'orden':  sec.orden,
+                })
+
+            for pp in (
+                PlantillaPropiedad.objects
+                .filter(plantilla=obj)
+                .select_related('propiedad', 'loinc_code', 'seccion')
+                .order_by('seccion__orden', 'orden', 'propiedad__nombre_propiedad')
+            ):
+                existing_data.append({
+                    'propId':    pp.propiedad_id,
+                    'nombre':    pp.propiedad.nombre_propiedad,
+                    'loincId':   pp.loinc_code_id or '',
+                    'loincNum':  pp.loinc_code.loinc_num  if pp.loinc_code else '',
+                    'loincDesc': pp.loinc_code.shortname  if pp.loinc_code else '',
+                    'orden':     pp.orden,
+                    'seccionId': pp.seccion_id or '',
+                    'seccionNombre': pp.seccion.nombre if pp.seccion else '',
+                })
+
+        return mark_safe(
+            '<script id="pp-props-data" type="application/json">'
+            + json.dumps(props_data, ensure_ascii=False) +
+            '</script>'
+            '<script id="pp-existing-data" type="application/json">'
+            + json.dumps(existing_data, ensure_ascii=False) +
+            '</script>'
+            '<script id="pp-secciones-data" type="application/json">'
+            + json.dumps(secciones_data, ensure_ascii=False) +
+            '</script>'
+        )
+
+    def get_fieldsets(self, request, obj=None):
+        base = [
+            (None, {'fields': ('titulo', 'tipo_formato', 'loinc_code', 'texto_justificado_default')}),
+        ]
+        base.append((
+            None,
+            {
+                'fields':      (),
+                'description': self._build_json_scripts(obj),
+            }
+        ))
+        return base
+
+    # ── Guardar desde el picker ───────────────────────────────────────────────
+    # El picker envía cuatro campos ocultos:
+    #   pp_picker_ids        = "3,7,12"
+    #   pp_picker_loinc_ids  = "5,,8"
+    #   pp_picker_ordenes    = "1,2,3"
+    #   pp_picker_seccion_ids = "1,1,2"   ← NUEVO: id de SeccionPlantilla por prop
+
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+
+        ids_raw        = request.POST.get('pp_picker_ids',         '').strip()
+        loinc_ids_raw  = request.POST.get('pp_picker_loinc_ids',   '').strip()
+        ordenes_raw    = request.POST.get('pp_picker_ordenes',     '').strip()
+        seccion_ids_raw = request.POST.get('pp_picker_seccion_ids', '').strip()
+
+        if not ids_raw:
+            return
+
+        ids_list        = [i.strip() for i in ids_raw.split(',')        if i.strip()]
+        loinc_ids_list  = [l.strip() for l in loinc_ids_raw.split(',')]
+        ordenes_list    = [o.strip() for o in ordenes_raw.split(',')]
+        seccion_ids_list = [s.strip() for s in seccion_ids_raw.split(',')]
+
+        while len(loinc_ids_list)   < len(ids_list): loinc_ids_list.append('')
+        while len(ordenes_list)     < len(ids_list): ordenes_list.append('')
+        while len(seccion_ids_list) < len(ids_list): seccion_ids_list.append('')
+
+        PlantillaPropiedad.objects.filter(plantilla=obj).delete()
+
+        for idx, prop_id_str in enumerate(ids_list):
+            if not prop_id_str.isdigit():
+                continue
+            try:
+                propiedad = Propiedad.objects.get(pk=int(prop_id_str))
+            except Propiedad.DoesNotExist:
+                continue
+
+            loinc_id_str   = loinc_ids_list[idx]   if idx < len(loinc_ids_list)   else ''
+            orden_str      = ordenes_list[idx]      if idx < len(ordenes_list)     else ''
+            seccion_id_str = seccion_ids_list[idx]  if idx < len(seccion_ids_list) else ''
+
+            orden = int(orden_str) if orden_str.isdigit() else (idx + 1)
+
+            loinc_obj   = None
+            seccion_obj = None
+
+            if loinc_id_str.isdigit():
+                loinc_obj = LoincCode.objects.filter(pk=int(loinc_id_str)).first()
+
+            if seccion_id_str.isdigit():
+                seccion_obj = SeccionPlantilla.objects.filter(
+                    pk=int(seccion_id_str), plantilla=obj
+                ).first()
+
+            PlantillaPropiedad.objects.create(
+                plantilla  = obj,
+                propiedad  = propiedad,
+                loinc_code = loinc_obj,
+                seccion    = seccion_obj,
+                orden      = orden,
+            )
+
+    def save_formset(self, request, form, formset, change):
+        if formset.model == PlantillaPropiedad:
+            formset.new_objects     = []
+            formset.changed_objects = []
+            formset.deleted_objects = []
+            return
+        super().save_formset(request, form, formset, change)
+
+    class Media:
+        js  = ('admin/js/plantilla_propiedades_picker.js',)
+        css = {'all': ('admin/css/plantilla_propiedades_picker.css',)}
+
+
 @admin.register(Analisis)
 class AnalisisAdmin(admin.ModelAdmin):
     form          = AnalisisAdminForm
@@ -494,8 +735,7 @@ class AnalisisAdmin(admin.ModelAdmin):
     search_fields = ('paciente__nombre', 'paciente__apellido_paterno', 'plantilla__titulo')
     autocomplete_fields = ('paciente', 'plantilla', 'creado_por')
     inlines       = [ResultadoAnalisisInline]
- 
-    # ─── Fieldsets sin "Personalización de propiedades" ───────────────────────
+
     fieldsets = (
         ('Datos del Análisis', {
             'fields': ('paciente', 'plantilla', 'creado_por', 'status',
@@ -513,48 +753,40 @@ class AnalisisAdmin(admin.ModelAdmin):
             ),
         }),
     )
-    # ─────────────────────────────────────────────────────────────────────────
- 
+
     def get_readonly_fields(self, request, obj=None):
         if obj:
-            return (
-                'paciente',
-                'plantilla',
-                'propiedades_excluidas',
-                'propiedades_extra',
-            )
+            return ('paciente', 'plantilla', 'propiedades_excluidas', 'propiedades_extra')
         return ()
- 
+
     def save_model(self, request, obj, form, change):
         obj.skip_signal = True
         super().save_model(request, obj, form, change)
- 
+
         if not change:
             ids_extra_raw = request.POST.get('_propiedades_extra_ids', '')
             ids_extra = [
                 int(i) for i in ids_extra_raw.split(',')
                 if i.strip().isdigit()
             ]
- 
+
             nombres_excluidas_raw = request.POST.get('_propiedades_excluidas_nombres', '')
             nombres_excluidas = [
                 n.strip() for n in nombres_excluidas_raw.split(',')
                 if n.strip()
             ]
- 
+
             if ids_extra:
-                obj.propiedades_extra.set(
-                    Propiedad.objects.filter(id__in=ids_extra)
-                )
- 
+                obj.propiedades_extra.set(Propiedad.objects.filter(id__in=ids_extra))
+
             if nombres_excluidas:
                 obj.propiedades_excluidas.set(
                     Propiedad.objects.filter(nombre_propiedad__in=nombres_excluidas)
                 )
- 
+
             paciente   = obj.paciente
             edad_meses = paciente.edad_en_meses
- 
+
             for propiedad in obj.get_propiedades_efectivas():
                 total_intervalos = propiedad.intervalos.count()
                 if total_intervalos == 0:
@@ -567,72 +799,84 @@ class AnalisisAdmin(admin.ModelAdmin):
                     ).filter(
                         Q(edad_max_meses__isnull=True) | Q(edad_max_meses__gte=edad_meses)
                     ).exists()
- 
+
                 if crear:
+                    try:
+                        pp    = PlantillaPropiedad.objects.get(plantilla=obj.plantilla, propiedad=propiedad)
+                        loinc = pp.loinc_code
+                    except (PlantillaPropiedad.DoesNotExist, AttributeError):
+                        loinc = None
+
                     ResultadoAnalisis.objects.get_or_create(
                         analisis=obj,
                         propiedad=propiedad,
                         defaults={
-                            'loinc_code':        propiedad.loinc_code,
-                            'nombre_propiedad':  propiedad.nombre_propiedad,
-                            'valor':             '',
-                            'unidad':            propiedad.unidad,
+                            'loinc_code':       loinc,
+                            'nombre_propiedad': propiedad.nombre_propiedad,
+                            'valor':            '',
+                            'unidad':           propiedad.unidad,
                         }
                     )
- 
+
     def save_formset(self, request, form, formset, change):
         if formset.model.__name__ == 'ResultadoAnalisis' and not change:
             analisis    = form.instance
             total_forms = int(request.POST.get('resultados-TOTAL_FORMS', 0))
- 
+
             for i in range(total_forms):
                 prefix = f'resultados-{i}'
- 
+
                 propiedad_id_raw = request.POST.get(f'{prefix}-propiedad', '').strip()
                 if not propiedad_id_raw or not propiedad_id_raw.isdigit():
                     continue
- 
+
                 propiedad_id = int(propiedad_id_raw)
                 raw_valor    = request.POST.get(f'{prefix}-valor', '').strip()
                 unidad       = request.POST.get(f'{prefix}-unidad', '').strip()
- 
+
                 try:
                     propiedad_obj = Propiedad.objects.get(pk=propiedad_id)
                 except Propiedad.DoesNotExist:
                     continue
- 
+
+                try:
+                    pp    = PlantillaPropiedad.objects.get(plantilla=analisis.plantilla, propiedad=propiedad_obj)
+                    loinc = pp.loinc_code
+                except (PlantillaPropiedad.DoesNotExist, AttributeError):
+                    loinc = None
+
                 instancia, _ = ResultadoAnalisis.objects.get_or_create(
                     analisis=analisis,
                     propiedad=propiedad_obj,
                     defaults={
-                        'loinc_code':        propiedad_obj.loinc_code,
-                        'nombre_propiedad':  propiedad_obj.nombre_propiedad,
-                        'valor':             raw_valor,
-                        'unidad':            unidad if unidad and unidad != 'N/A' else propiedad_obj.unidad,
+                        'loinc_code':       loinc,
+                        'nombre_propiedad': propiedad_obj.nombre_propiedad,
+                        'valor':            raw_valor,
+                        'unidad':           unidad if unidad and unidad != 'N/A' else propiedad_obj.unidad,
                     }
                 )
- 
+
                 instancia.valor = raw_valor
                 if unidad and unidad != 'N/A':
                     instancia.unidad = unidad
                 if not instancia.nombre_propiedad:
                     instancia.nombre_propiedad = propiedad_obj.nombre_propiedad
                 instancia.save()
- 
+
             formset.new_objects     = []
             formset.changed_objects = []
             formset.deleted_objects = []
             return
- 
+
         super().save_formset(request, form, formset, change)
- 
+
     def response_add(self, request, obj, post_url_continue=None):
         from django.http import HttpResponseRedirect
         from django.urls import reverse
         return HttpResponseRedirect(
             reverse('admin:LabApp_analisis_change', args=[obj.pk])
         )
- 
+
     def render_change_form(self, request, context, add=False, change=False, form_url='', obj=None):
         if add:
             self.message_user(
@@ -644,30 +888,26 @@ class AnalisisAdmin(admin.ModelAdmin):
         return super().render_change_form(
             request, context, add=add, change=change, form_url=form_url, obj=obj
         )
- 
+
     def get_paciente(self, obj):
         return obj.paciente.nombre_completo
     get_paciente.short_description = "Paciente"
- 
+
     def get_plantilla(self, obj):
         return obj.plantilla.titulo if obj.plantilla else "-"
     get_plantilla.short_description = "Plantilla"
- 
+
     def get_resumen_propiedades(self, obj):
         extra     = obj.propiedades_extra.count()
         excluidas = obj.propiedades_excluidas.count()
         partes = []
         if extra:
-            partes.append(
-                format_html('<span style="color:#1a7a3c;">+{} extra</span>', extra)
-            )
+            partes.append(format_html('<span style="color:#1a7a3c;">+{} extra</span>', extra))
         if excluidas:
-            partes.append(
-                format_html('<span style="color:#c0392b;">-{} excluidas</span>', excluidas)
-            )
+            partes.append(format_html('<span style="color:#c0392b;">-{} excluidas</span>', excluidas))
         return format_html(' | '.join(str(p) for p in partes)) if partes else "—"
     get_resumen_propiedades.short_description = "Props. personalizadas"
- 
+
     def link_pdf(self, obj):
         if obj.id:
             return format_html(
@@ -678,10 +918,9 @@ class AnalisisAdmin(admin.ModelAdmin):
             )
         return "-"
     link_pdf.short_description = "Reporte"
- 
- 
+
+
 @admin.register(LoincCode)
 class LoincCodeAdmin(admin.ModelAdmin):
     search_fields = ('loinc_num', 'shortname', 'component')
     list_display  = ('loinc_num', 'shortname', 'component', 'system')
- 

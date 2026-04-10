@@ -10,7 +10,8 @@ from django.db.models import Q
 
 from .models import (
     Paciente, Laboratorio, Analisis, ResultadoAnalisis,
-    Plantilla, Propiedad, IntervaloReferencia, Usuario
+    Plantilla, Propiedad, IntervaloReferencia, Usuario,
+    PlantillaPropiedad, SeccionPlantilla,
 )
 from .serializers import (
     PacienteSerializer, LaboratorioSerializer, AnalisisSerializer,
@@ -45,17 +46,6 @@ def _descargar_imagen_bytes(field):
 # ======================================================
 
 class LaboratorioViewSet(viewsets.ModelViewSet):
-    """
-    GET /api/laboratorios/
-        → Devuelve todos los laboratorios del sistema.
-
-    GET /api/laboratorios/?usuario_id=<id>
-        → Devuelve SOLO los laboratorios asignados al usuario.
-          Usa la relación M2M Usuario.laboratorios (related_name='usuarios').
-
-    Esto permite que la app de escritorio cargue en el dropdown de
-    "Nuevo Paciente" únicamente los laboratorios del usuario logueado.
-    """
     queryset         = Laboratorio.objects.all()
     serializer_class = LaboratorioSerializer
 
@@ -72,22 +62,13 @@ class AnalisisViewSet(viewsets.ModelViewSet):
     serializer_class = AnalisisSerializer
 
 
-# FIX: prefetch_related para evitar N+1 queries y garantizar que las propiedades
-# y sus intervalos se serialicen completos en cada respuesta de /api/plantillas/.
-# Sin esto, el serializer hace una query extra por cada plantilla para obtener
-# sus propiedades, y otra por cada propiedad para obtener sus intervalos.
 class ResultadoAnalisisViewSet(viewsets.ModelViewSet):
-    """
-    PATCH /api/resultados/<id>/
-        Actualiza el valor (y opcionalmente unidad) de un ResultadoAnalisis por su ID.
-        Usado por la app local para sincronizar ediciones a la nube de forma precisa.
-    """
     queryset         = ResultadoAnalisis.objects.all()
     serializer_class = ResultadoSerializer
 
     def partial_update(self, request, *args, **kwargs):
-        instancia = self.get_object()
-        nuevo_valor = request.data.get('valor')
+        instancia    = self.get_object()
+        nuevo_valor  = request.data.get('valor')
         nueva_unidad = request.data.get('unidad')
 
         if nuevo_valor is not None:
@@ -103,20 +84,12 @@ class PlantillaViewSet(viewsets.ModelViewSet):
     queryset = Plantilla.objects.prefetch_related(
         'propiedades',
         'propiedades__intervalos',
+        'secciones',
     ).all()
     serializer_class = PlantillaSerializer
 
 
-# FIX: prefetch_related en PropiedadViewSet para que los intervalos anidados
-# se devuelvan correctamente sin queries adicionales.
 class PropiedadViewSet(viewsets.ModelViewSet):
-    """
-    GET    /api/propiedades/        → lista con intervalos anidados
-    POST   /api/propiedades/        → crea (acepta tipo, opciones_cualitativas, intervalos)
-    PUT    /api/propiedades/<id>/   → reemplaza completa
-    PATCH  /api/propiedades/<id>/   → actualización parcial
-    DELETE /api/propiedades/<id>/   → elimina
-    """
     queryset         = Propiedad.objects.prefetch_related('intervalos').all()
     serializer_class = PropiedadSerializer
 
@@ -124,6 +97,7 @@ class PropiedadViewSet(viewsets.ModelViewSet):
 class IntervaloReferenciaViewSet(viewsets.ModelViewSet):
     queryset         = IntervaloReferencia.objects.all()
     serializer_class = IntervaloReferenciaSerializer
+
 
 class UsuarioViewSet(viewsets.ModelViewSet):
     queryset         = Usuario.objects.all()
@@ -139,7 +113,7 @@ class PacienteViewSet(viewsets.ModelViewSet):
     serializer_class = PacienteSerializer
 
     def get_queryset(self):
-        qs = Paciente.objects.all()
+        qs         = Paciente.objects.all()
         usuario_id = self.request.query_params.get('usuario_id')
         if usuario_id:
             qs = qs.filter(laboratorio__usuarios__id=usuario_id)
@@ -147,37 +121,15 @@ class PacienteViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='buscar_nube')
     def buscar_nube(self, request):
-        """
-        GET /api/pacientes/buscar_nube/
-            ?usuario_id=<id>
-            &nombre=<texto>
-            &apellido_paterno=<texto>
-
-        Devuelve LISTA de todos los pacientes que coincidan con los filtros.
-        Cada paciente incluye sus análisis y el laboratorio como objeto completo
-        (con id y nombre_laboratorio) para que la app local lo guarde correctamente.
-
-        FIX: Se eliminó el filtro por laboratorio__usuarios en la búsqueda principal,
-        de modo que un usuario pueda encontrar pacientes aunque la relación M2M
-        usuario-laboratorio no esté perfectamente configurada en la nube.
-        El filtro por usuario_id se usa solo para validar que el usuario existe.
-        """
         usuario_id       = request.query_params.get('usuario_id')
         nombre           = request.query_params.get('nombre', '').strip()
         apellido_paterno = request.query_params.get('apellido_paterno', '').strip()
 
         if not usuario_id:
-            return Response(
-                {"error": "Se requiere usuario_id"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({"error": "Se requiere usuario_id"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Validar que el usuario exista
         if not Usuario.objects.filter(id=usuario_id, is_active=True).exists():
-            return Response(
-                {"error": "Usuario no encontrado o inactivo"},
-                status=status.HTTP_404_NOT_FOUND
-            )
+            return Response({"error": "Usuario no encontrado o inactivo"}, status=status.HTTP_404_NOT_FOUND)
 
         if not nombre and not apellido_paterno:
             return Response(
@@ -185,38 +137,22 @@ class PacienteViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # FIX PRINCIPAL: Buscar en TODOS los pacientes accesibles por el usuario,
-        # usando OR entre laboratorio__usuarios y búsqueda directa. Esto evita que
-        # pacientes queden invisibles por un M2M mal configurado.
-        # Se obtienen los laboratorios del usuario y se busca en ellos, pero si
-        # el usuario no tiene laboratorios asignados se busca en todos (fallback).
         labs_usuario = Laboratorio.objects.filter(usuarios__id=usuario_id)
-
         if labs_usuario.exists():
             qs = Paciente.objects.filter(laboratorio__in=labs_usuario)
         else:
-            # Fallback: buscar en todos (útil si el M2M no está configurado)
-            print(f"  [buscar_nube] ADVERTENCIA: usuario {usuario_id} sin laboratorios "
-                  f"en M2M. Buscando en todos los pacientes.")
+            print(f"  [buscar_nube] ADVERTENCIA: usuario {usuario_id} sin laboratorios. Buscando en todos.")
             qs = Paciente.objects.all()
 
-        # Aplicar filtros de nombre / apellido con icontains (sin distinción de acentos/mayúsculas)
         if nombre and apellido_paterno:
-            filtros = (
-                Q(nombre__icontains=nombre) & Q(apellido_paterno__icontains=apellido_paterno)
-            )
+            filtros = Q(nombre__icontains=nombre) & Q(apellido_paterno__icontains=apellido_paterno)
         elif nombre:
             filtros = Q(nombre__icontains=nombre)
         else:
             filtros = Q(apellido_paterno__icontains=apellido_paterno)
 
-        pacientes = qs.filter(filtros).order_by('apellido_paterno', 'nombre')
-
-        serializer = PacienteBusquedaNubeSerializer(
-            pacientes,
-            many=True,
-            context={'request': request}
-        )
+        pacientes  = qs.filter(filtros).order_by('apellido_paterno', 'nombre')
+        serializer = PacienteBusquedaNubeSerializer(pacientes, many=True, context={'request': request})
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
@@ -253,16 +189,10 @@ def login_api(request):
     try:
         usuario = Usuario.objects.get(correo_electronico=correo, is_active=True)
     except Usuario.DoesNotExist:
-        return Response(
-            {"error": "Credenciales incorrectas"},
-            status=status.HTTP_401_UNAUTHORIZED
-        )
+        return Response({"error": "Credenciales incorrectas"}, status=status.HTTP_401_UNAUTHORIZED)
 
     if not usuario.check_password(password):
-        return Response(
-            {"error": "Credenciales incorrectas"},
-            status=status.HTTP_401_UNAUTHORIZED
-        )
+        return Response({"error": "Credenciales incorrectas"}, status=status.HTTP_401_UNAUTHORIZED)
 
     data = UsuarioLoginResponseSerializer(usuario).data
     return Response(data, status=status.HTTP_200_OK)
@@ -277,31 +207,19 @@ def mi_laboratorio_api(request):
     usuario_id = request.query_params.get('usuario_id')
 
     if not usuario_id:
-        return Response(
-            {"error": "Se requiere el parámetro usuario_id"},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+        return Response({"error": "Se requiere el parámetro usuario_id"}, status=status.HTTP_400_BAD_REQUEST)
 
     try:
         usuario = Usuario.objects.get(id=usuario_id, is_active=True)
     except Usuario.DoesNotExist:
-        return Response(
-            {"error": "Usuario no encontrado"},
-            status=status.HTTP_404_NOT_FOUND
-        )
+        return Response({"error": "Usuario no encontrado"}, status=status.HTTP_404_NOT_FOUND)
 
     laboratorio = usuario.laboratorios.first()
 
     if not laboratorio:
-        return Response(
-            {"error": "El usuario no tiene laboratorio asignado"},
-            status=status.HTTP_404_NOT_FOUND
-        )
+        return Response({"error": "El usuario no tiene laboratorio asignado"}, status=status.HTTP_404_NOT_FOUND)
 
-    data = MiLaboratorioResponseSerializer(
-        laboratorio,
-        context={'request': request}
-    ).data
+    data = MiLaboratorioResponseSerializer(laboratorio, context={'request': request}).data
     return Response(data, status=status.HTTP_200_OK)
 
 
@@ -323,15 +241,29 @@ def _construir_detalles_analisis(analisis):
         imagen_bytes1 = _descargar_imagen_bytes(analisis.imagen_resultado1)
         imagen_bytes2 = _descargar_imagen_bytes(analisis.imagen_resultado2)
 
-    resultados  = []
-    edad_meses  = paciente.edad_en_meses
-
+    edad_meses    = paciente.edad_en_meses
     ids_excluidos = analisis.propiedades_excluidas.values_list('id', flat=True)
     resultados_qs = analisis.resultados.exclude(propiedad_id__in=ids_excluidos)
 
+    # ── Construir mapa propiedad → sección (para agrupar en el PDF) ─────────
+    # Solo aplica cuando el análisis tiene plantilla con secciones definidas.
+    prop_seccion_map = {}   # { propiedad_id: nombre_seccion }
+    seccion_orden_map = {}  # { nombre_seccion: orden }
+
+    if analisis.plantilla:
+        for pp in (
+            PlantillaPropiedad.objects
+            .filter(plantilla=analisis.plantilla)
+            .select_related('seccion')
+        ):
+            if pp.seccion:
+                prop_seccion_map[pp.propiedad_id]  = pp.seccion.nombre
+                seccion_orden_map[pp.seccion.nombre] = pp.seccion.orden
+
+    # ── Construir lista de resultados con sección ────────────────────────────
+    resultados_raw = []
+
     for res in resultados_qs:
-        # FIX: omitir resultados sin nombre_propiedad para evitar filas vacías en PDF.
-        # Se intenta recuperar el nombre desde la FK si el campo denormalizado está vacío.
         nombre_prop = res.nombre_propiedad
         if not nombre_prop:
             try:
@@ -340,7 +272,6 @@ def _construir_detalles_analisis(analisis):
                 nombre_prop = None
 
         if not nombre_prop:
-            # Si no hay nombre en ningún lado, saltar esta fila (evita fila vacía en PDF)
             print(f"  [PDF] Resultado id={res.pk} sin nombre_propiedad — omitido del PDF")
             continue
 
@@ -364,15 +295,41 @@ def _construir_detalles_analisis(analisis):
         except Exception:
             pass
 
-        # FIX: usar el nombre recuperado (puede venir del campo denormalizado o de la FK)
-        resultados.append({
+        seccion_nombre = prop_seccion_map.get(res.propiedad_id, '')
+
+        resultados_raw.append({
             "nombre_propiedad":      nombre_prop,
             "valor":                 res.valor or "",
             "unidad":                res.unidad or "",
             "valor_min":             valor_min,
             "valor_max":             valor_max,
             "opciones_cualitativas": propiedad.opciones_cualitativas if propiedad else "",
+            "seccion":               seccion_nombre,
         })
+
+    # ── Agrupar por sección para el PDF ──────────────────────────────────────
+    # Si ningún resultado tiene sección, se devuelve lista plana (comportamiento anterior).
+    # Si hay secciones, se devuelve lista de grupos ordenados.
+    tiene_secciones = any(r["seccion"] for r in resultados_raw)
+
+    if tiene_secciones:
+        grupos = {}
+        for r in resultados_raw:
+            sec = r["seccion"] or ""
+            if sec not in grupos:
+                grupos[sec] = {
+                    "seccion": sec,
+                    "orden":   seccion_orden_map.get(sec, 9999) if sec else 9999,
+                    "filas":   [],
+                }
+            grupos[sec]["filas"].append(r)
+
+        # Sección vacía (sin sección asignada) va al final
+        resultados_agrupados = sorted(grupos.values(), key=lambda g: g["orden"])
+    else:
+        # Sin secciones: lista plana envuelta en un grupo vacío para
+        # que el generador de PDF no tenga que manejar dos estructuras distintas.
+        resultados_agrupados = [{"seccion": "", "orden": 0, "filas": resultados_raw}]
 
     return {
         "paciente":                    paciente.nombre_completo,
@@ -383,15 +340,18 @@ def _construir_detalles_analisis(analisis):
         "fecha_muestra":               analisis.fecha_muestra,
         "fecha_analisis":              analisis.fecha_analisis,
         "hora_toma":                   analisis.hora_toma,
-        "resultados":                  resultados,
+        # resultados_agrupados reemplaza a la lista plana "resultados".
+        # Cada elemento: {"seccion": "FÓRMULA ROJA", "orden": 0, "filas": [...]}
+        # Cuando no hay secciones hay un único grupo con seccion="" y todas las filas.
+        "resultados_agrupados":        resultados_agrupados,
         "laboratorio_nombre":          laboratorio.nombre_laboratorio if laboratorio else "",
         "laboratorio_logo":            logo_bytes,
         "imagen_blob1":                imagen_bytes1,
         "imagen_blob2":                imagen_bytes2,
         "tipo_muestra":                analisis.tipo_muestra or "",
         "metodo":                      analisis.metodo or "",
-        "usuario_generador":           quimico.nombre                if quimico else "",
-        "quimico_puesto":              quimico.puesto                if quimico else "",
+        "usuario_generador":           quimico.nombre                 if quimico else "",
+        "quimico_puesto":              quimico.puesto                 if quimico else "",
         "quimico_titulo":              quimico.titulo_abreviado       if quimico else "",
         "quimico_cedula":              quimico.cedula_profesional     if quimico else "",
         "quimico_cedula_especialidad": quimico.cedula_especialidad    if quimico else "",
@@ -456,10 +416,22 @@ def plantilla_propiedades(request, plantilla_id):
         except Paciente.DoesNotExist:
             paciente = None
 
+    # Incluir información de sección en cada propiedad para el JS del admin
+    pp_map = {
+        pp.propiedad_id: pp
+        for pp in PlantillaPropiedad.objects
+        .filter(plantilla=plantilla)
+        .select_related('seccion')
+    }
+
     propiedades_qs = plantilla.propiedades.all()
     resultado      = []
 
     for prop in propiedades_qs:
+        pp         = pp_map.get(prop.id)
+        seccion_id = pp.seccion_id    if pp and pp.seccion else None
+        seccion_nombre = pp.seccion.nombre if pp and pp.seccion else ''
+
         if paciente:
             edad_meses = paciente.edad_en_meses
             intervalo  = prop.intervalos.filter(
@@ -481,6 +453,8 @@ def plantilla_propiedades(request, plantilla_id):
                 'unidad':                prop.unidad or '',
                 'valor_min':             intervalo.valor_min if intervalo else None,
                 'valor_max':             intervalo.valor_max if intervalo else None,
+                'seccion_id':            seccion_id,
+                'seccion_nombre':        seccion_nombre,
             })
         else:
             resultado.append({
@@ -491,6 +465,8 @@ def plantilla_propiedades(request, plantilla_id):
                 'unidad':                prop.unidad or '',
                 'valor_min':             None,
                 'valor_max':             None,
+                'seccion_id':            seccion_id,
+                'seccion_nombre':        seccion_nombre,
             })
 
     return JsonResponse({'propiedades': resultado})

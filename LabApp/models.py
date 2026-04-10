@@ -136,9 +136,6 @@ class Propiedad(models.Model):
     ]
 
     nombre_propiedad      = models.CharField(max_length=100, unique=True)
-    loinc_code            = models.ForeignKey(
-        LoincCode, on_delete=models.PROTECT, null=True, blank=True
-    )
     tipo                  = models.CharField(
         max_length=15, choices=TIPO_CHOICES, default='CUANTITATIVO',
     )
@@ -197,14 +194,98 @@ class Plantilla(models.Model):
     sincronizado              = models.BooleanField(default=False)
     fecha_modificacion        = models.DateTimeField(auto_now=True)
 
+    # Código LOINC del panel completo (ej. 58410-2 para Biometría Hemática).
+    # Opcional — para interoperabilidad futura con HL7/FHIR.
+    loinc_code = models.ForeignKey(
+        LoincCode,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='plantillas_panel',
+    )
+
     propiedades = models.ManyToManyField(
         Propiedad,
+        through='PlantillaPropiedad',
         related_name='plantillas',
         blank=True,
     )
 
     def __str__(self):
         return self.titulo
+
+
+# =============================================================================
+# SECCIÓN DE PLANTILLA  (ej. FÓRMULA ROJA, FÓRMULA BLANCA)
+# =============================================================================
+
+class SeccionPlantilla(models.Model):
+    """
+    Agrupa propiedades dentro de una plantilla bajo un subtítulo visible
+    en el reporte PDF (ej. FÓRMULA ROJA, SERIE TROMBOCÍTICA).
+    Es opcional: plantillas sin secciones funcionan exactamente igual que antes.
+    """
+    plantilla = models.ForeignKey(
+        Plantilla,
+        on_delete=models.CASCADE,
+        related_name='secciones',
+    )
+    nombre = models.CharField(
+        max_length=100,
+        help_text='Subtítulo de sección en el reporte. Ej: FÓRMULA ROJA',
+    )
+    orden = models.PositiveSmallIntegerField(
+        default=0,
+        help_text='Orden de aparición de la sección dentro de la plantilla.',
+    )
+
+    class Meta:
+        ordering            = ['orden', 'nombre']
+        unique_together     = ('plantilla', 'nombre')
+        verbose_name        = 'Serie de plantilla'
+        verbose_name_plural = 'Series de plantilla'
+
+    def __str__(self):
+        return f'{self.plantilla.titulo} › {self.nombre}'
+
+
+# =============================================================================
+# PLANTILLA ↔ PROPIEDAD (con LOINC y sección específicos por plantilla)
+# =============================================================================
+
+class PlantillaPropiedad(models.Model):
+    """
+    Tabla intermedia entre Plantilla y Propiedad.
+    - loinc_code : LOINC correcto para esta propiedad en el contexto de la plantilla.
+    - seccion    : agrupación visual en el reporte (opcional).
+    - orden      : posición dentro de la sección (o de la plantilla si no hay sección).
+    """
+    plantilla  = models.ForeignKey(Plantilla,  on_delete=models.CASCADE,  related_name='plantilla_propiedades')
+    propiedad  = models.ForeignKey(Propiedad,  on_delete=models.CASCADE,  related_name='plantilla_propiedades')
+    loinc_code = models.ForeignKey(
+        LoincCode, on_delete=models.PROTECT, null=True, blank=True,
+    )
+    seccion = models.ForeignKey(
+        SeccionPlantilla,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='propiedades',
+        help_text='Sección a la que pertenece esta propiedad dentro del reporte.',
+    )
+    orden = models.PositiveSmallIntegerField(
+        default=0,
+        help_text='Orden dentro de la sección (o de la plantilla si no hay sección).',
+    )
+
+    class Meta:
+        unique_together     = ('plantilla', 'propiedad')
+        ordering            = ['seccion__orden', 'orden', 'propiedad__nombre_propiedad']
+        verbose_name        = 'Propiedad de plantilla'
+        verbose_name_plural = 'Propiedades de plantilla'
+
+    def __str__(self):
+        loinc   = f' [{self.loinc_code.loinc_num}]' if self.loinc_code else ''
+        seccion = f' ({self.seccion.nombre})'        if self.seccion    else ''
+        return f'{self.plantilla.titulo} → {self.propiedad.nombre_propiedad}{loinc}{seccion}'
 
 
 # =============================================================================
@@ -257,28 +338,20 @@ class Analisis(models.Model):
 
 class ResultadoAnalisis(models.Model):
     analisis   = models.ForeignKey(Analisis,  on_delete=models.CASCADE,  related_name='resultados')
-    propiedad  = models.ForeignKey(Propiedad, on_delete=models.PROTECT,   related_name='resultados')
-    loinc_code = models.ForeignKey(LoincCode, on_delete=models.PROTECT,   null=True, blank=True)
+    propiedad  = models.ForeignKey(Propiedad, on_delete=models.PROTECT,  related_name='resultados')
+    loinc_code = models.ForeignKey(LoincCode, on_delete=models.PROTECT,  null=True, blank=True)
     valor      = models.CharField(max_length=100, blank=True, null=True)
     unidad     = models.CharField(max_length=20,  null=True, blank=True)
 
-    # ─── CORRECCIÓN BUG 1 ────────────────────────────────────────────────────
-    # nombre_propiedad ahora es un campo real en la BD, no un @property.
-    # Esto permite que el Admin lo muestre correctamente en el inline,
-    # que se pueda filtrar/ordenar, y que la sincronización local sea exacta.
-    # Se auto-puebla desde la FK en save() si no viene explícito.
+    # Campo denormalizado: snapshot del nombre al momento de crear el resultado.
+    # Permite conservar el nombre histórico si la propiedad cambia de nombre.
     nombre_propiedad = models.CharField(
         max_length=100, blank=True, null=True,
         verbose_name="Nombre propiedad",
         help_text="Se completa automáticamente desde la FK propiedad al guardar."
     )
-    # ─────────────────────────────────────────────────────────────────────────
 
     def save(self, *args, **kwargs):
-        # Siempre sincronizar nombre_propiedad con la FK para mantener consistencia.
-        # Si la propiedad cambia de nombre en el futuro, los resultados históricos
-        # conservan el nombre que tenían al momento de crearse (snapshot).
-        # Para forzar actualización, pasar force_update_nombre=True.
         force_update = kwargs.pop('force_update_nombre', False)
         if (not self.nombre_propiedad or force_update) and self.propiedad_id:
             try:
@@ -308,21 +381,13 @@ def crear_resultados_predeterminados(sender, instance, created, **kwargs):
       - skip_signal=True  → viene del admin de Django (el admin los crea manualmente)
       - _desde_api=True   → viene del serializer/API REST (el cliente manda los
                             resultados explícitamente, no hay que auto-generarlos)
-
-    De esta forma las propiedades que el usuario excluyó en la app de escritorio
-    NO aparecen como resultados vacíos en el admin.
     """
-    # Guard 1: admin de Django lo maneja solo
     if getattr(instance, 'skip_signal', False):
         return
-
-    # Guard 2: API REST / serializer — el cliente ya mandó los resultados exactos
     if getattr(instance, '_desde_api', False):
         return
-
     if not created:
         return
-
     if not instance.plantilla:
         return
 
@@ -344,13 +409,19 @@ def crear_resultados_predeterminados(sender, instance, created, **kwargs):
             ).exists()
 
         if crear:
+            try:
+                pp    = PlantillaPropiedad.objects.get(plantilla=instance.plantilla, propiedad=propiedad)
+                loinc = pp.loinc_code
+            except PlantillaPropiedad.DoesNotExist:
+                loinc = None
+
             ResultadoAnalisis.objects.get_or_create(
                 analisis=instance,
                 propiedad=propiedad,
                 defaults={
-                    'loinc_code':        propiedad.loinc_code,
-                    'nombre_propiedad':  propiedad.nombre_propiedad,   # ← CORRECCIÓN BUG 1
-                    'valor':             '',
-                    'unidad':            propiedad.unidad,
+                    'loinc_code':       loinc,
+                    'nombre_propiedad': propiedad.nombre_propiedad,
+                    'valor':            '',
+                    'unidad':           propiedad.unidad,
                 }
             )
