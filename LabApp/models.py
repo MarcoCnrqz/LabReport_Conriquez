@@ -6,6 +6,8 @@ from django.db.models import Q
 
 from datetime import date
 
+from cloudinary.models import CloudinaryField  # ← igual que logo y firma_digital
+
 
 # =============================================================================
 # LABORATORIO Y USUARIO
@@ -17,7 +19,7 @@ class Laboratorio(models.Model):
     estado             = models.CharField(max_length=100, null=True, blank=True)
     codigo_postal      = models.CharField(max_length=20,  null=True, blank=True)
     pais               = models.CharField(max_length=100, null=True, blank=True)
-    logo               = models.ImageField(upload_to='logos_laboratorios/', null=True, blank=True)
+    logo               = CloudinaryField('image', folder='logos_laboratorios', null=True, blank=True)
 
     responsable_sanitario_principal = models.ForeignKey(
         'Usuario', on_delete=models.SET_NULL, null=True, blank=True,
@@ -45,7 +47,7 @@ class Usuario(models.Model):
     cedula_especialidad  = models.CharField(max_length=50,  blank=True, null=True)
     registro_ssg         = models.CharField(max_length=50,  blank=True, null=True)
     universidad_egreso   = models.CharField(max_length=150, blank=True, null=True)
-    firma_digital        = models.ImageField(upload_to='firmas/', blank=True, null=True)
+    firma_digital        = CloudinaryField('image', folder='firmas', blank=True, null=True)
 
     def save(self, *args, **kwargs):
         if self.password and not is_password_usable(self.password):
@@ -312,8 +314,10 @@ class Analisis(models.Model):
     tipo_muestra = models.CharField(max_length=150, null=True, blank=True)
     metodo       = models.CharField(max_length=200, null=True, blank=True)
 
-    imagen_resultado1 = models.ImageField(upload_to='resultados_imagenes/', null=True, blank=True)
-    imagen_resultado2 = models.ImageField(upload_to='resultados_imagenes/', null=True, blank=True)
+    # ── Imágenes de resultado almacenadas en Cloudinary ──────────────────────
+    # Igual que logo (Laboratorio) y firma_digital (Usuario).
+    imagen_resultado1 = CloudinaryField('image', folder='resultados_imagenes', null=True, blank=True)
+    imagen_resultado2 = CloudinaryField('image', folder='resultados_imagenes', null=True, blank=True)
 
     propiedades_extra = models.ManyToManyField(
         Propiedad, related_name='analisis_extra', blank=True,

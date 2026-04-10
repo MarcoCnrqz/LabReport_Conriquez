@@ -217,7 +217,75 @@ def generar_pdf_reporte(detalles):
 
     y -= BANNER_H + 0.35 * cm
 
-# =========================================================================
+    # =========================================================================
+    # IMÁGENES DE RESULTADO
+    # Solo se renderizan cuando tipo_formato == 'IMAGENES_RESULTADOS'.
+    # Se muestran ANTES de la tabla: primero imagen1 e imagen2 lado a lado
+    # (o centrada si solo hay una), luego la tabla de resultados.
+    # Las imágenes llegan como bytes descargados desde Cloudinary en views.py,
+    # igual que el logo del laboratorio y la firma digital del químico.
+    # =========================================================================
+    imagen_blob1 = detalles.get("imagen_blob1")
+    imagen_blob2 = detalles.get("imagen_blob2")
+
+    if imagen_blob1 or imagen_blob2:
+        IMG_MAX_H = 7.0 * cm                          # alto máximo de cada imagen
+        IMG_MAX_W = (ANCHO_UTIL / 2) - 0.3 * cm      # mitad del ancho útil
+
+        blobs_validos = [b for b in [imagen_blob1, imagen_blob2] if b]
+        n = len(blobs_validos)
+
+        # Si solo hay una imagen se muestra centrada ocupando el ancho completo
+        img_w = ANCHO_UTIL if n == 1 else IMG_MAX_W
+
+        # Si no caben en la página actual, nueva página
+        if y - IMG_MAX_H - 0.4 * cm < Y_FOOTER_TOP:
+            c.showPage()
+            y = height - 2 * cm
+
+        # Título de sección "IMÁGENES"
+        SEC_IMG_H = 0.55 * cm
+        c.setFillColor(COLOR_PRIMARIO)
+        c.rect(MARGEN_IZQ, y - SEC_IMG_H, ANCHO_UTIL, SEC_IMG_H, fill=1, stroke=0)
+        c.setFillColor(COLOR_SECUNDARIO)
+        c.rect(MARGEN_IZQ, y - SEC_IMG_H, ANCHO_UTIL, 0.08 * cm, fill=1, stroke=0)
+        c.setFillColor(colors.white)
+        _font(c, "Roboto-Bold", 8)
+        c.drawString(MARGEN_IZQ + 0.25 * cm, y - SEC_IMG_H + 0.16 * cm, "IMÁGENES")
+        y -= SEC_IMG_H + 0.25 * cm
+
+        x_pos = MARGEN_IZQ
+        alto_real_max = 0  # para avanzar y exactamente lo que ocupó la imagen más alta
+
+        for blob in blobs_validos:
+            try:
+                pil_img = Image.open(BytesIO(blob))
+                orig_w, orig_h = pil_img.size
+                if orig_w and orig_h:
+                    scale  = min(img_w / orig_w, IMG_MAX_H / orig_h)
+                    draw_w = orig_w * scale
+                    draw_h = orig_h * scale
+                else:
+                    draw_w, draw_h = img_w, IMG_MAX_H
+
+                c.drawInlineImage(
+                    pil_img,
+                    x_pos,
+                    y - draw_h,
+                    width=draw_w,
+                    height=draw_h,
+                    preserveAspectRatio=True,
+                )
+                alto_real_max = max(alto_real_max, draw_h)
+            except Exception as e:
+                print(f"[PDF] Error al renderizar imagen resultado: {e}")
+
+            # Avanzar al lado derecho si hay dos imágenes
+            x_pos += IMG_MAX_W + 0.6 * cm
+
+        y -= alto_real_max + 0.5 * cm   # espacio entre imágenes y tabla
+
+    # =========================================================================
     # TABLA DE RESULTADOS — 5 columnas:
     #   PRUEBA | RESULTADO | REFERENCIA | UNIDAD | OPCIONES
     # =========================================================================
@@ -284,16 +352,15 @@ def generar_pdf_reporte(detalles):
             c.line(x_sep, y_actual, x_sep, _yit[0])
 
     def dibujar_serie_header(yy, nombre_serie):
-        """Dibuja una barra coloreada con el nombre de la serie."""
-        c.setFillColor(COLOR_PRIMARIO)
-        c.rect(X0, yy - SERIE_H, ANCHO_UTIL, SERIE_H, fill=1, stroke=0)
-        # Franja decorativa inferior
-        c.setFillColor(COLOR_SECUNDARIO)
-        c.rect(X0, yy - SERIE_H, ANCHO_UTIL, 0.1 * cm, fill=1, stroke=0)
-        c.setFillColor(colors.white)
+        """Dibuja el nombre de la serie como texto simple con línea separadora."""
+        # Línea decorativa encima del texto
+        c.setStrokeColor(COLOR_BORDE)
+        c.setLineWidth(0.6)
+        c.line(X0, yy - 0.1 * cm, MARGEN_DER, yy - 0.1 * cm)
+        # Texto del nombre de serie
         _font(c, "Roboto-Bold", 8)
-        c.drawString(X0 + 0.25 * cm, yy - SERIE_H + 0.18 * cm,
-                     nombre_serie.upper())
+        c.setFillColor(COLOR_TEXTO_OSC)
+        c.drawString(X0, yy - SERIE_H + 0.12 * cm, nombre_serie.upper())
 
     fila_global = 0   # contador continuo para fondo alterno entre grupos
     primer_grupo = True
