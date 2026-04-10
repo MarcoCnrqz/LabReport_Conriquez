@@ -7,19 +7,21 @@ from .models import (
 import base64
 import uuid
 from django.core.files.base import ContentFile
+from django.db import IntegrityError
 
 
 # ======================================================
 # UTILIDAD: CAMPO DE IMAGEN BASE64
 # ======================================================
+
 class Base64ImageField(serializers.ImageField):
     def to_internal_value(self, data):
         if isinstance(data, str) and data.startswith('data:image'):
             try:
                 format, imgstr = data.split(';base64,')
                 ext  = format.split('/')[-1]
-                id   = uuid.uuid4()
-                data = ContentFile(base64.b64decode(imgstr), name=f"{id}.{ext}")
+                uid  = uuid.uuid4()
+                data = ContentFile(base64.b64decode(imgstr), name=f"{uid}.{ext}")
             except Exception as e:
                 raise serializers.ValidationError(
                     f"Error decodificando imagen Base64: {str(e)}"
@@ -35,7 +37,10 @@ class IntervaloReferenciaSerializer(serializers.ModelSerializer):
     class Meta:
         model  = IntervaloReferencia
         fields = '__all__'
-        read_only_fields = ('sincronizado', 'fecha_modificacion', 'propiedad')
+        # ✅ FIX: 'propiedad' eliminado de read_only_fields — era código muerto
+        # porque DRF ya lo filtra al ser FK; se maneja con pop() explícito en
+        # PropiedadSerializer.create/update.
+        read_only_fields = ('sincronizado', 'fecha_modificacion')
 
 
 class PropiedadSerializer(serializers.ModelSerializer):
@@ -82,7 +87,8 @@ class PropiedadSerializer(serializers.ModelSerializer):
 
         propiedad = Propiedad.objects.create(**validated_data)
         for int_data in intervalos_data:
-            int_data.pop('propiedad', None)
+            int_data.pop('propiedad', None)   # defensa ante datos inesperados
+            int_data.pop('id', None)
             IntervaloReferencia.objects.create(propiedad=propiedad, **int_data)
         return propiedad
 
@@ -106,6 +112,7 @@ class PropiedadSerializer(serializers.ModelSerializer):
             instance.intervalos.all().delete()
             for int_data in intervalos_data:
                 int_data.pop('propiedad', None)
+                int_data.pop('id', None)
                 IntervaloReferencia.objects.create(propiedad=instance, **int_data)
         return instance
 
@@ -133,10 +140,9 @@ class PlantillaSerializer(serializers.ModelSerializer):
         write_only=True,
         required=False,
         default=list,
-        help_text="IDs de Propiedad para asignar al M2M.",
+        help_text="IDs remotos de Propiedad para asignar al M2M.",
     )
 
-    # ✅ NUEVO: secciones que se crean/sincronizan junto con la plantilla
     secciones_input = serializers.ListField(
         child=serializers.DictField(),
         write_only=True,
@@ -145,7 +151,6 @@ class PlantillaSerializer(serializers.ModelSerializer):
         help_text="Lista de secciones [{nombre: str, orden: int}] para crear junto con la plantilla.",
     )
 
-    # ✅ NUEVO: LOINC por propiedad en el contexto de esta plantilla
     propiedades_loinc = serializers.DictField(
         child=serializers.CharField(allow_blank=True),
         write_only=True,
@@ -187,7 +192,11 @@ class PlantillaSerializer(serializers.ModelSerializer):
                 pass
 
     def _sincronizar_secciones(self, plantilla, secciones_data):
-        """Crea o actualiza SeccionPlantilla para la plantilla dada."""
+        """
+        Crea o actualiza SeccionPlantilla para la plantilla dada.
+        ✅ FIX: ahora elimina las secciones que ya no vienen desde la nube,
+        evitando acumulación de secciones fantasma.
+        """
         nombres_recibidos = set()
         for sec in secciones_data:
             nombre = (sec.get('nombre') or '').strip()
@@ -202,6 +211,17 @@ class PlantillaSerializer(serializers.ModelSerializer):
                 obj.orden = orden
                 obj.save()
             nombres_recibidos.add(nombre)
+
+        # ✅ FIX: eliminar secciones que ya no existen en la fuente
+        eliminadas = (
+            SeccionPlantilla.objects
+            .filter(plantilla=plantilla)
+            .exclude(nombre__in=nombres_recibidos)
+            .delete()
+        )
+        if eliminadas[0]:
+            print(f"  [PlantillaSerializer] {eliminadas[0]} sección(es) obsoleta(s) eliminada(s).")
+
         return nombres_recibidos
 
     def create(self, validated_data):
@@ -220,12 +240,10 @@ class PlantillaSerializer(serializers.ModelSerializer):
             if no_encontrados:
                 print(f"  [PlantillaSerializer] IDs no encontrados: {no_encontrados}")
 
-        # ✅ Crear secciones
         if secciones_data:
             self._sincronizar_secciones(plantilla, secciones_data)
             print(f"  [PlantillaSerializer] '{plantilla.titulo}' → {len(secciones_data)} secciones procesadas.")
 
-        # ✅ Asignar LOINC por propiedad en el M2M
         if propiedades_loinc:
             self._aplicar_loinc_por_propiedad(plantilla, propiedades_loinc)
 
@@ -249,11 +267,9 @@ class PlantillaSerializer(serializers.ModelSerializer):
             if no_encontrados:
                 print(f"  [PlantillaSerializer] IDs no encontrados: {no_encontrados}")
 
-        # ✅ Actualizar secciones (sin borrar las existentes que no vienen)
         if secciones_data is not None:
             self._sincronizar_secciones(instance, secciones_data)
 
-        # ✅ Actualizar LOINC por propiedad en M2M
         if propiedades_loinc is not None:
             self._aplicar_loinc_por_propiedad(instance, propiedades_loinc)
 
@@ -267,7 +283,13 @@ class PlantillaSerializer(serializers.ModelSerializer):
 class ResultadoSerializer(serializers.ModelSerializer):
     class Meta:
         model  = ResultadoAnalisis
-        fields = ['id', 'loinc_code', 'nombre_propiedad', 'valor', 'unidad']
+        # ✅ FIX: se agrega 'propiedad' como campo de solo lectura para que el
+        # cliente local pueda identificar el propiedad_id real de la nube y
+        # evitar ambigüedad al sincronizar por nombre.
+        fields = ['id', 'propiedad', 'loinc_code', 'nombre_propiedad', 'valor', 'unidad']
+        extra_kwargs = {
+            'propiedad': {'read_only': True},
+        }
 
 
 class AnalisisSerializer(serializers.ModelSerializer):
@@ -351,21 +373,30 @@ class AnalisisSerializer(serializers.ModelSerializer):
             valor       = res_data.get('valor', '')
             unidad      = res_data.get('unidad', '')
 
-            propiedad_obj = None
-            if nombre_prop:
+            if not nombre_prop:
+                continue
+
+            # ✅ FIX: usar get_or_create atómico para evitar race condition
+            # con creación duplicada de propiedades bajo carga concurrente.
+            try:
+                propiedad_obj, creada = Propiedad.objects.get_or_create(
+                    nombre_propiedad__iexact=nombre_prop,
+                    defaults={
+                        'nombre_propiedad': nombre_prop,
+                        'unidad':           unidad or '',
+                    }
+                )
+            except IntegrityError:
+                # Caso extremo: dos hilos crearon la misma propiedad al mismo tiempo
                 propiedad_obj = Propiedad.objects.filter(
                     nombre_propiedad__iexact=nombre_prop
                 ).first()
-
                 if not propiedad_obj:
-                    propiedad_obj = Propiedad.objects.create(
-                        nombre_propiedad=nombre_prop,
-                        unidad=unidad or '',
-                    )
-                    print(f"  [Serializer] Propiedad on-the-fly: '{nombre_prop}'")
+                    continue
+                creada = False
 
-            if not propiedad_obj:
-                continue
+            if creada:
+                print(f"  [Serializer] Propiedad on-the-fly: '{nombre_prop}'")
 
             nombre_para_guardar = nombre_prop or propiedad_obj.nombre_propiedad
 
