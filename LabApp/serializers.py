@@ -34,19 +34,28 @@ class Base64ImageField(serializers.ImageField):
 # ======================================================
 
 class IntervaloReferenciaSerializer(serializers.ModelSerializer):
+    """Serializer completo — usado por IntervaloReferenciaViewSet (CRUD directo)."""
     class Meta:
         model  = IntervaloReferencia
         fields = '__all__'
         read_only_fields = ('sincronizado', 'fecha_modificacion')
-        extra_kwargs = {
-            # Al usarse como nested en PropiedadSerializer, el campo propiedad
-            # lo asigna el padre en .create()/.update(), no el cliente.
-            'propiedad': {'required': False},
-        }
+
+
+class IntervaloNestedSerializer(serializers.ModelSerializer):
+    """
+    Serializer ligero para intervalos ANIDADOS dentro de PropiedadSerializer.
+    Excluye 'propiedad' porque el padre la asigna en .create()/.update().
+    Sin este serializer separado, la validacion exige propiedad=<id> aunque
+    el cliente nunca lo manda, generando el error 400.
+    """
+    class Meta:
+        model  = IntervaloReferencia
+        exclude = ('propiedad',)
+        read_only_fields = ('sincronizado', 'fecha_modificacion')
 
 
 class PropiedadSerializer(serializers.ModelSerializer):
-    intervalos = IntervaloReferenciaSerializer(many=True, required=False)
+    intervalos = IntervaloNestedSerializer(many=True, required=False)
 
     loinc_num = serializers.CharField(
         write_only=True,
