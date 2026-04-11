@@ -37,9 +37,6 @@ class IntervaloReferenciaSerializer(serializers.ModelSerializer):
     class Meta:
         model  = IntervaloReferencia
         fields = '__all__'
-        # ✅ FIX: 'propiedad' eliminado de read_only_fields — era código muerto
-        # porque DRF ya lo filtra al ser FK; se maneja con pop() explícito en
-        # PropiedadSerializer.create/update.
         read_only_fields = ('sincronizado', 'fecha_modificacion')
 
 
@@ -87,7 +84,7 @@ class PropiedadSerializer(serializers.ModelSerializer):
 
         propiedad = Propiedad.objects.create(**validated_data)
         for int_data in intervalos_data:
-            int_data.pop('propiedad', None)   # defensa ante datos inesperados
+            int_data.pop('propiedad', None)
             int_data.pop('id', None)
             IntervaloReferencia.objects.create(propiedad=propiedad, **int_data)
         return propiedad
@@ -124,7 +121,10 @@ class SeccionPlantillaSerializer(serializers.ModelSerializer):
 
 
 class PlantillaSerializer(serializers.ModelSerializer):
-    propiedades = PropiedadSerializer(many=True, read_only=True)
+    # ✅ FIX Bug 1: propiedades ahora se lee desde PlantillaPropiedad (tabla
+    # intermedia M2M) para exponer loinc_num y seccion_nombre correctos por
+    # plantilla, en lugar del loinc de la Propiedad general.
+    propiedades = serializers.SerializerMethodField()
     secciones   = SeccionPlantillaSerializer(many=True, read_only=True)
 
     # Expone el LOINC del panel como string para lectura
@@ -171,6 +171,58 @@ class PlantillaSerializer(serializers.ModelSerializer):
         model  = Plantilla
         fields = '__all__'
         read_only_fields = ('sincronizado', 'fecha_modificacion')
+
+    # ✅ FIX Bug 1: Lee loinc_num y seccion_nombre desde PlantillaPropiedad,
+    # no desde Propiedad directamente. Así la app local recibe los valores
+    # específicos de la plantilla, no el LOINC genérico de la propiedad.
+    def get_propiedades(self, obj):
+        """
+        Devuelve las propiedades enriquecidas con loinc_num_display y
+        seccion_nombre leídos desde PlantillaPropiedad (tabla intermedia).
+
+        Prioridad de loinc_num:
+          1. pp.loinc_code  (asignado específicamente en esta plantilla)
+          2. prop.loinc_code (loinc genérico de la propiedad)
+
+        Campos extra expuestos (usados por _guardar_plantillas_nube en local):
+          - loinc_num_display : str  ("2345-7" o "")
+          - seccion_nombre    : str  ("FÓRMULA ROJA" o "")
+          - seccion_orden     : int
+          - orden             : int  (orden dentro de la sección)
+        """
+        result = []
+        pp_qs = (
+            PlantillaPropiedad.objects
+            .filter(plantilla=obj)
+            .select_related(
+                'propiedad',
+                'propiedad__loinc_code',
+                'loinc_code',
+                'seccion',
+            )
+            .order_by('seccion__orden', 'orden', 'propiedad__nombre_propiedad')
+        )
+
+        for pp in pp_qs:
+            prop = pp.propiedad
+
+            # Prioridad: LOINC de la tabla intermedia > LOINC de la propiedad
+            if pp.loinc_code:
+                loinc_num = pp.loinc_code.loinc_num or ""
+            elif prop.loinc_code:
+                loinc_num = prop.loinc_code.loinc_num or ""
+            else:
+                loinc_num = ""
+
+            data = PropiedadSerializer(prop).data
+            # Sobreescribir loinc_num_display con el valor de la tabla intermedia
+            data['loinc_num_display'] = loinc_num
+            data['seccion_nombre']    = pp.seccion.nombre if pp.seccion else ""
+            data['seccion_orden']     = pp.seccion.orden  if pp.seccion else 9999
+            data['orden']             = pp.orden or 0
+            result.append(data)
+
+        return result
 
     def validate_tipo_formato(self, value):
         choices_validos = [c[0] for c in Plantilla.FORMATOS]
@@ -228,7 +280,7 @@ class PlantillaSerializer(serializers.ModelSerializer):
     def _sincronizar_secciones(self, plantilla, secciones_data):
         """
         Crea o actualiza SeccionPlantilla para la plantilla dada.
-        ✅ FIX: ahora elimina las secciones que ya no vienen desde la nube,
+        Elimina las secciones que ya no vienen desde la nube,
         evitando acumulación de secciones fantasma.
         """
         nombres_recibidos = set()
@@ -246,7 +298,7 @@ class PlantillaSerializer(serializers.ModelSerializer):
                 obj.save()
             nombres_recibidos.add(nombre)
 
-        # ✅ FIX: eliminar secciones que ya no existen en la fuente
+        # Eliminar secciones que ya no existen en la fuente
         eliminadas = (
             SeccionPlantilla.objects
             .filter(plantilla=plantilla)
@@ -325,9 +377,6 @@ class PlantillaSerializer(serializers.ModelSerializer):
 class ResultadoSerializer(serializers.ModelSerializer):
     class Meta:
         model  = ResultadoAnalisis
-        # ✅ FIX: se agrega 'propiedad' como campo de solo lectura para que el
-        # cliente local pueda identificar el propiedad_id real de la nube y
-        # evitar ambigüedad al sincronizar por nombre.
         fields = ['id', 'propiedad', 'loinc_code', 'nombre_propiedad', 'valor', 'unidad']
         extra_kwargs = {
             'propiedad': {'read_only': True},
@@ -418,8 +467,6 @@ class AnalisisSerializer(serializers.ModelSerializer):
             if not nombre_prop:
                 continue
 
-            # ✅ FIX: usar get_or_create atómico para evitar race condition
-            # con creación duplicada de propiedades bajo carga concurrente.
             try:
                 propiedad_obj, creada = Propiedad.objects.get_or_create(
                     nombre_propiedad__iexact=nombre_prop,
@@ -429,7 +476,6 @@ class AnalisisSerializer(serializers.ModelSerializer):
                     }
                 )
             except IntegrityError:
-                # Caso extremo: dos hilos crearon la misma propiedad al mismo tiempo
                 propiedad_obj = Propiedad.objects.filter(
                     nombre_propiedad__iexact=nombre_prop
                 ).first()
