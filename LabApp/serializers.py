@@ -38,6 +38,11 @@ class IntervaloReferenciaSerializer(serializers.ModelSerializer):
         model  = IntervaloReferencia
         fields = '__all__'
         read_only_fields = ('sincronizado', 'fecha_modificacion')
+        extra_kwargs = {
+            # Al usarse como nested en PropiedadSerializer, el campo propiedad
+            # lo asigna el padre en .create()/.update(), no el cliente.
+            'propiedad': {'required': False},
+        }
 
 
 class PropiedadSerializer(serializers.ModelSerializer):
