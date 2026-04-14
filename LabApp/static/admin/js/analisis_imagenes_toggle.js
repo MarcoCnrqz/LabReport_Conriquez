@@ -1,12 +1,15 @@
 /**
  * analisis_imagenes_toggle.js
- * v16 — FIX: las secciones Extra/Excluir ahora se insertan con
- * insertAdjacentElement('afterend') directamente sobre #resultados-group,
- * lo que garantiza que aparezcan en el DOM sin importar la estructura
- * del tema admin. El orden correcto es:
- *   [#resultados-group]
- *   [_seccion_excluir]   ← rojo/naranja
- *   [_seccion_extras]    ← verde
+ * v17 — TRES CORRECCIONES:
+ *   1. FIX valores de referencia en props extra: consultarPlantilla ahora
+ *      incluye paciente_id en urlDisp para que propiedades_disponibles
+ *      devuelva valor_min/valor_max reales (antes siempre null).
+ *   2. FIX desalineación de tabla: construirFila restaura la columna
+ *      tdLoinc (field-col_loinc_code) que v16 eliminó. tdNombre
+ *      (field-nombre_propiedad) se omite porque ese campo fue eliminado
+ *      del inline de admin por ser redundante con tdProp.
+ *   3. NEW botón "🌐 Buscar en LOINC.org" inyectado en el encabezado del
+ *      inline de resultados para acceder rápidamente al buscador oficial.
  */
 
 (function () {
@@ -122,12 +125,19 @@
         'background-color:#f0f0f0;color:#999;cursor:not-allowed;' +
         'border:1px solid #ddd;border-radius:4px;font-size:13px;width:100%;padding:2px 6px;';
 
+    function escHtml(s) {
+        return String(s)
+            .replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+            .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
     // -------------------------------------------------------
     // Estado global
     // -------------------------------------------------------
     var _propiedadesBase        = [];
     var _extrasSeleccionadas    = {}; // { id: propObj }
     var _excluidasSeleccionadas = {}; // { nombre_propiedad: true }
+    var _extraLoincMap          = {}; // { propId: { loincId, loincNum, loincDesc } }
 
     // -------------------------------------------------------
     // CONSTRUIR FILA
@@ -141,6 +151,20 @@
         var valorMin = prop.valor_min;
         var valorMax = prop.valor_max;
         var pref     = PREFIX + '-' + index;
+
+        // Resolver LOINC: base → prop.loinc_num; extra → _extraLoincMap
+        var loincNum  = '';
+        var loincDesc = '';
+        if (esExtra) {
+            var loincEntry = _extraLoincMap[String(prop.id)];
+            if (loincEntry) {
+                loincNum  = loincEntry.loincNum  || '';
+                loincDesc = loincEntry.loincDesc || '';
+            }
+        } else {
+            loincNum  = prop.loinc_num  || '';
+            loincDesc = prop.loinc_desc || '';
+        }
 
         var tr = document.createElement('tr');
         tr.id        = PREFIX + '-' + index;
@@ -196,21 +220,44 @@
 
         if (esExtra) {
             var badge = document.createElement('span');
-            badge.textContent   = ' ➕ Extra';
+            badge.textContent   = ' \u2795 Extra';
             badge.style.cssText = 'font-size:10px;color:#fff;background:#27ae60;' +
                 'border-radius:3px;padding:1px 5px;margin-left:5px;';
             tdProp.appendChild(badge);
         }
         if (esExcluida) {
             var badgeEx = document.createElement('span');
-            badgeEx.textContent   = ' ➖ Excluida';
+            badgeEx.textContent   = ' \u2796 Excluida';
             badgeEx.style.cssText = 'font-size:10px;color:#fff;background:#e74c3c;' +
                 'border-radius:3px;padding:1px 5px;margin-left:5px;';
             tdProp.appendChild(badgeEx);
         }
+
+        // Mostrar código LOINC bajo el nombre de la propiedad
         tr.appendChild(tdProp);
 
-        // ── Columna: valor ──────────────────────────────────────────
+        // ── Columna: col_loinc_code — readonly div (col 2) ─────────────────
+        // nombre_propiedad fue eliminado del inline (es redundante con tdProp),
+        var tdLoinc = document.createElement('td');
+        tdLoinc.className           = 'field-col_loinc_code';
+        tdLoinc.style.verticalAlign = 'middle';
+        var divLoinc = document.createElement('div');
+        divLoinc.className = 'readonly';
+        if (loincNum) {
+            divLoinc.innerHTML =
+                '<span style="font-family:monospace;font-size:12px;background:#e8f4fd;' +
+                'border:1px solid #aac8e8;border-radius:3px;padding:2px 6px;color:#1a5276;">' +
+                '\uD83D\uDD2C ' + escHtml(loincNum) + '</span>' +
+                (loincDesc
+                    ? ' <span style="font-size:11px;color:#555;">' + escHtml(loincDesc) + '</span>'
+                    : '');
+        } else {
+            divLoinc.innerHTML = '<span style="color:#aaa;font-size:11px;">\u2014 sin LOINC \u2014</span>';
+        }
+        tdLoinc.appendChild(divLoinc);
+        tr.appendChild(tdLoinc);
+
+        // ── Columna: valor ─────────────────────────────────────────────────
         var tdValor = document.createElement('td');
         tdValor.className           = 'field-valor';
         tdValor.style.verticalAlign = 'middle';
@@ -220,7 +267,8 @@
             var sel = document.createElement('select');
             sel.name           = pref + '-valor';
             sel.id             = 'id_' + pref + '-valor';
-            sel.style.cssText  = 'width:100%;font-size:13px;';
+            // Fix C: ancho moderado en lugar de 100%
+            sel.style.cssText  = 'width:120px;max-width:100%;font-size:13px;';
             if (esExcluida) sel.disabled = true;
 
             var optBlank = document.createElement('option');
@@ -240,7 +288,8 @@
             inputValor.name         = pref + '-valor';
             inputValor.id           = 'id_' + pref + '-valor';
             inputValor.value        = '';
-            inputValor.style.cssText = 'width:100%;font-size:13px;';
+            // Fix C: ancho acotado
+            inputValor.style.cssText = 'width:80px;max-width:100%;font-size:13px;';
             if (esExcluida) {
                 inputValor.disabled      = true;
                 inputValor.style.cssText += 'pointer-events:none;';
@@ -249,27 +298,35 @@
         }
         tr.appendChild(tdValor);
 
-        // ── Columna: unidad ─────────────────────────────────────────
+        // ── Columna: unidad ─────────────────────────────────────────────────
+        // Fix B: en lugar de un <input readonly> que se ve como caja de texto,
+        // usamos un <span> de solo lectura + un <input hidden> para el POST.
+        // Así la unidad se muestra como texto plano sin borde ni fondo.
         var tdUnidad = document.createElement('td');
         tdUnidad.className           = 'field-unidad';
         tdUnidad.style.verticalAlign = 'middle';
 
-        var inputUnidad = document.createElement('input');
-        inputUnidad.type = 'text';
-        inputUnidad.name = pref + '-unidad';
-        inputUnidad.id   = 'id_' + pref + '-unidad';
+        var unidadVal = (tipo === 'CUALITATIVO') ? 'N/A' : (unidad || '');
 
+        // Input oculto — lo necesita el POST de Django
+        var inputUnidadHidden = document.createElement('input');
+        inputUnidadHidden.type  = 'hidden';
+        inputUnidadHidden.name  = pref + '-unidad';
+        inputUnidadHidden.id    = 'id_' + pref + '-unidad';
+        inputUnidadHidden.value = unidadVal;
+        tdUnidad.appendChild(inputUnidadHidden);
+
+        // Span visible — se ve como texto normal, sin caja
+        var spanUnidad = document.createElement('span');
+        spanUnidad.textContent  = unidadVal;
+        spanUnidad.style.cssText =
+            'font-size:13px;color:' +
+            (tipo === 'CUALITATIVO' ? '#999' : 'inherit') + ';' +
+            (tipo === 'CUALITATIVO' ? 'font-style:italic;' : '');
         if (tipo === 'CUALITATIVO') {
-            inputUnidad.value    = 'N/A';
-            inputUnidad.disabled = true;
-            inputUnidad.setAttribute('title', 'No aplica para propiedades cualitativas');
-            inputUnidad.style.cssText = ESTILO_UNIDAD_NA;
-        } else {
-            inputUnidad.value         = unidad;
-            inputUnidad.readOnly      = true;
-            inputUnidad.style.cssText = ESTILO_READONLY;
+            spanUnidad.title = 'No aplica para propiedades cualitativas';
         }
-        tdUnidad.appendChild(inputUnidad);
+        tdUnidad.appendChild(spanUnidad);
         tr.appendChild(tdUnidad);
 
         // ── Columna: referencia / opciones ──────────────────────────
@@ -316,9 +373,46 @@
     // RENDERIZAR TABLA COMPLETA
     // -------------------------------------------------------
 
+    // -------------------------------------------------------
+    // PRESERVAR VALORES ESCRITOS POR EL USUARIO
+    // Cuando se agrega/quita una propiedad extra, renderizarTablaCompleta()
+    // reconstruye toda la tabla. Sin estas funciones los valores ya escritos
+    // se pierden porque los inputs se reemplazan por nuevos vacíos.
+    // -------------------------------------------------------
+
+    function capturarValoresActuales() {
+        var valores = {};
+        var tbody = getTbodyInline();
+        if (!tbody) return valores;
+        tbody.querySelectorAll('tr.dynamic-' + PREFIX).forEach(function (fila) {
+            var propInput = fila.querySelector('input[name$="-propiedad"]');
+            if (!propInput || !propInput.value) return;
+            var valorEl = fila.querySelector('[name$="-valor"]');
+            if (valorEl) valores[propInput.value] = valorEl.value;
+        });
+        return valores;
+    }
+
+    function restaurarValores(guardados) {
+        if (!guardados || !Object.keys(guardados).length) return;
+        var tbody = getTbodyInline();
+        if (!tbody) return;
+        tbody.querySelectorAll('tr.dynamic-' + PREFIX).forEach(function (fila) {
+            var propInput = fila.querySelector('input[name$="-propiedad"]');
+            if (!propInput || !propInput.value) return;
+            var val = guardados[propInput.value];
+            if (val === undefined) return;
+            var valorEl = fila.querySelector('[name$="-valor"]');
+            if (valorEl && !valorEl.disabled) valorEl.value = val;
+        });
+    }
+
     function renderizarTablaCompleta() {
         var tbody = getTbodyInline();
         if (!tbody || debeBloquearPrecarga()) return;
+
+        // Guardar valores escritos ANTES de reconstruir la tabla
+        var valoresGuardados = capturarValoresActuales();
 
         limpiarFilasSinPk();
 
@@ -345,6 +439,9 @@
 
         recalcularTotalForms();
         actualizarHiddens();
+
+        // Restaurar los valores que el usuario ya había escrito
+        restaurarValores(valoresGuardados);
     }
 
     // -------------------------------------------------------
@@ -402,7 +499,7 @@
 
         propiedadesDisp.forEach(function (prop) {
             var row = document.createElement('div');
-            row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:4px 2px;border-bottom:1px solid #f0f0f0;';
+            row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:4px 2px;border-bottom:1px solid #f0f0f0;flex-wrap:wrap;';
 
             var chk = document.createElement('input');
             chk.type      = 'checkbox';
@@ -410,20 +507,65 @@
             chk.value     = prop.id;
             if (_extrasSeleccionadas[prop.id]) chk.checked = true;
 
-            chk.addEventListener('change', function () {
-                if (this.checked) { _extrasSeleccionadas[prop.id] = prop; }
-                else              { delete _extrasSeleccionadas[prop.id]; }
-                renderizarTablaCompleta();
-            });
-
             var lbl = document.createElement('label');
-            lbl.style.cssText = 'cursor:pointer;font-size:13px;margin:0;';
+            lbl.style.cssText = 'cursor:pointer;font-size:13px;margin:0;flex:1;min-width:120px;';
             lbl.textContent   = prop.nombre_propiedad
                 + (prop.unidad ? ' (' + prop.unidad + ')' : '')
                 + (prop.tipo === 'CUALITATIVO' ? ' [Cualitativo]' : '');
 
+            // Zona LOINC: display + botón picker
+            var loincWrap = document.createElement('div');
+            loincWrap.id            = '_loinc_wrap_extra_' + prop.id;
+            loincWrap.style.cssText = 'display:none;align-items:center;gap:4px;margin-left:4px;';
+
+            var loincDisplay = document.createElement('span');
+            loincDisplay.id = '_loinc_display_extra_' + prop.id;
+            // Inicializar con el estado actual (por si se re-renderiza la lista)
+            var loincEntry = _extraLoincMap[String(prop.id)];
+            if (loincEntry && loincEntry.loincNum) {
+                loincDisplay.innerHTML =
+                    '<span style="color:#1a6fa8;font-weight:600;font-size:12px;font-family:monospace;">' +
+                    escHtml(loincEntry.loincNum) + '</span>' +
+                    (loincEntry.loincDesc
+                        ? '<span style="color:#555;font-size:11px;margin-left:4px;">\u2014 ' + escHtml(loincEntry.loincDesc) + '</span>'
+                        : '');
+            } else {
+                loincDisplay.innerHTML = '<span style="color:#999;font-size:11px;">Sin c\u00F3digo</span>';
+            }
+
+            var loincBtn = document.createElement('button');
+            loincBtn.type      = 'button';
+            loincBtn.className = 'pp-extra-loinc-btn';
+            loincBtn.title     = 'Buscar y asignar código LOINC';
+            loincBtn.style.cssText =
+                'border:1px solid #1a6fa8;background:#e8f0fe;color:#1a6fa8;' +
+                'border-radius:3px;padding:2px 6px;cursor:pointer;font-size:11px;white-space:nowrap;';
+            loincBtn.textContent = '\uD83D\uDD0D LOINC';
+            loincBtn.addEventListener('click', function (e) {
+                e.stopPropagation();
+                mostrarExtraLoincPopup(String(prop.id), loincBtn, prop.nombre_propiedad);
+            });
+
+            loincWrap.appendChild(loincDisplay);
+            loincWrap.appendChild(loincBtn);
+
+            chk.addEventListener('change', function () {
+                if (this.checked) {
+                    _extrasSeleccionadas[prop.id] = prop;
+                    loincWrap.style.display = 'flex';
+                } else {
+                    delete _extrasSeleccionadas[prop.id];
+                    delete _extraLoincMap[String(prop.id)];
+                    loincWrap.style.display = 'none';
+                }
+                renderizarTablaCompleta();
+                actualizarHiddens();
+            });
+
             row.appendChild(chk);
             row.appendChild(lbl);
+            row.appendChild(loincWrap);
+            if (_extrasSeleccionadas[prop.id]) loincWrap.style.display = 'flex';
             lista.appendChild(row);
         });
     }
@@ -500,16 +642,30 @@
                 if (this.checked) { _excluidasSeleccionadas[prop.nombre_propiedad] = true; }
                 else              { delete _excluidasSeleccionadas[prop.nombre_propiedad]; }
                 renderizarTablaCompleta();
+                actualizarHiddens();
             });
 
             var lbl = document.createElement('label');
-            lbl.style.cssText = 'cursor:pointer;font-size:13px;margin:0;';
+            lbl.style.cssText = 'cursor:pointer;font-size:13px;margin:0;flex:1;';
             lbl.textContent   = prop.nombre_propiedad
                 + (prop.unidad ? ' (' + prop.unidad + ')' : '')
                 + (prop.tipo === 'CUALITATIVO' ? ' [Cualitativo]' : '');
 
             row.appendChild(chk);
             row.appendChild(lbl);
+
+            // Mostrar LOINC de la plantilla como etiqueta de solo lectura (informativa)
+            if (prop.loinc_num) {
+                var loincTag = document.createElement('span');
+                loincTag.title         = prop.loinc_desc || prop.loinc_num;
+                loincTag.style.cssText =
+                    'font-family:monospace;font-size:11px;color:#1a5276;' +
+                    'background:#e8f4fd;border:1px solid #aac8e8;border-radius:3px;' +
+                    'padding:1px 5px;white-space:nowrap;';
+                loincTag.textContent = '\uD83D\uDD2C ' + prop.loinc_num;
+                row.appendChild(loincTag);
+            }
+
             lista.appendChild(row);
         });
     }
@@ -538,8 +694,234 @@
     }
 
     function actualizarHiddens() {
-        setHidden('_hidden_extras',    '_propiedades_extra_ids',         Object.keys(_extrasSeleccionadas).join(','));
-        setHidden('_hidden_excluidas', '_propiedades_excluidas_nombres', Object.keys(_excluidasSeleccionadas).join(','));
+        var extraIds = Object.keys(_extrasSeleccionadas);
+        setHidden('_hidden_extras',      '_propiedades_extra_ids',         extraIds.join(','));
+        setHidden('_hidden_excluidas',   '_propiedades_excluidas_nombres', Object.keys(_excluidasSeleccionadas).join(','));
+        // LOINCs en el mismo orden que los ids de extras (array paralelo)
+        var loincIds = extraIds.map(function (id) {
+            return (_extraLoincMap[id] && _extraLoincMap[id].loincId)
+                ? _extraLoincMap[id].loincId
+                : '';
+        });
+        setHidden('_hidden_extras_loinc', '_propiedades_extra_loinc_ids', loincIds.join(','));
+    }
+
+    // -------------------------------------------------------
+    // LOINC PICKER PARA PROPIEDADES EXTRA
+    // Popup flotante con búsqueda contextual (muestra + método).
+    // -------------------------------------------------------
+
+    var _extraLoincPopup    = null;
+    var _extraLoincDebounce = null;
+    var _extraLoincPropId   = null;
+
+    function getLoincAdminBase() {
+        var m = window.location.pathname.match(/^(\/admin\/[^/]+\/analisis\/)/i);
+        return m ? m[1] : '/admin/LabApp/analisis/';
+    }
+
+    function getMuestraAnalisis() {
+        var el = document.getElementById('id_tipo_muestra');
+        return el ? el.value.trim() : '';
+    }
+
+    function getMetodoAnalisis() {
+        var el = document.getElementById('id_metodo');
+        return el ? el.value.trim() : '';
+    }
+
+    function crearExtraLoincPopup() {
+        if (_extraLoincPopup) return _extraLoincPopup;
+        var popup = document.createElement('div');
+        popup.id = 'pp-extra-loinc-popup';
+        popup.style.cssText = [
+            'display:none', 'position:fixed', 'z-index:999999',
+            'background:#fff', 'border:1px solid #bbb', 'border-radius:6px',
+            'box-shadow:0 4px 20px rgba(0,0,0,.22)', 'padding:8px',
+            'min-width:360px', 'max-width:600px', 'box-sizing:border-box',
+        ].join(';');
+        popup.innerHTML = [
+            '<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">',
+            '<input id="pp-extra-loinc-inp" type="text" autocomplete="off"',
+            ' placeholder="Buscar código LOINC..." style="flex:1;box-sizing:border-box;',
+            'padding:6px 10px;border:1px solid #bbb;border-radius:4px;font-size:13px;">',
+            '<a id="pp-extra-loinc-extbtn" href="https://loinc.org/search/" target="_blank"',
+            ' title="Buscar en loinc.org" style="display:inline-flex;align-items:center;',
+            'gap:3px;padding:5px 8px;background:#1a6fa8;color:#fff;border-radius:4px;',
+            'text-decoration:none;font-size:12px;white-space:nowrap;flex-shrink:0;">',
+            '\uD83C\uDF10 LOINC.org</a>',
+            '</div>',
+            '<div id="pp-extra-loinc-results" style="max-height:240px;overflow-y:auto;',
+            'border-top:1px solid #eee;padding-top:4px;">',
+            '<div style="color:#999;font-size:12px;padding:6px;">Escribe para buscar\u2026</div>',
+            '</div>',
+        ].join('');
+        document.body.appendChild(popup);
+
+        var inp = popup.querySelector('#pp-extra-loinc-inp');
+        inp.addEventListener('input', function () {
+            var q = inp.value.trim();
+            var extBtn = document.getElementById('pp-extra-loinc-extbtn');
+            if (extBtn) extBtn.href = q
+                ? 'https://loinc.org/search/?t=1&q=' + encodeURIComponent(q)
+                : 'https://loinc.org/search/';
+            clearTimeout(_extraLoincDebounce);
+            var resEl = document.getElementById('pp-extra-loinc-results');
+            if (q.length < 2) {
+                if (resEl) resEl.innerHTML = '<div style="color:#999;font-size:12px;padding:6px;">Escribe al menos 2 caracteres\u2026</div>';
+                return;
+            }
+            _extraLoincDebounce = setTimeout(function () {
+                buscarLoincExtra(q, _extraLoincPropId);
+            }, 280);
+        });
+        inp.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') cerrarExtraLoincPopup();
+        });
+        _extraLoincPopup = popup;
+        return popup;
+    }
+
+    function mostrarExtraLoincPopup(propId, btnEl, nombreProp) {
+        var popup  = crearExtraLoincPopup();
+        _extraLoincPropId = propId;
+        var rect   = btnEl.getBoundingClientRect();
+        var popupW = 380, popupH = 300;
+        popup.style.display = 'block';
+        var top  = (window.innerHeight - rect.bottom >= popupH || rect.top < popupH)
+            ? rect.bottom + 4 : rect.top - popupH - 4;
+        var left = Math.min(rect.left, window.innerWidth - popupW - 8);
+        popup.style.top  = top  + 'px';
+        popup.style.left = left + 'px';
+
+        var inp = document.getElementById('pp-extra-loinc-inp');
+        if (inp) {
+            inp.value = nombreProp || '';
+            inp.focus(); inp.select();
+            var extBtn = document.getElementById('pp-extra-loinc-extbtn');
+            if (extBtn && nombreProp)
+                extBtn.href = 'https://loinc.org/search/?t=1&q=' + encodeURIComponent(nombreProp);
+        }
+        var resEl = document.getElementById('pp-extra-loinc-results');
+        if (resEl) {
+            if (nombreProp && nombreProp.length >= 2) {
+                resEl.innerHTML = '<div style="color:#999;font-size:12px;padding:6px;">Buscando\u2026</div>';
+                buscarLoincExtra(nombreProp, propId);
+            } else {
+                resEl.innerHTML = '<div style="color:#999;font-size:12px;padding:6px;">Escribe para buscar\u2026</div>';
+            }
+        }
+    }
+
+    function cerrarExtraLoincPopup() {
+        if (_extraLoincPopup) _extraLoincPopup.style.display = 'none';
+        _extraLoincPropId = null;
+    }
+
+    document.addEventListener('click', function (e) {
+        if (!_extraLoincPopup || _extraLoincPopup.style.display === 'none') return;
+        if (!e.target.closest('#pp-extra-loinc-popup') && !e.target.closest('.pp-extra-loinc-btn'))
+            cerrarExtraLoincPopup();
+    });
+    ['scroll', 'resize'].forEach(function (ev) {
+        window.addEventListener(ev, function (e) {
+            if (!_extraLoincPopup || _extraLoincPopup.style.display === 'none') return;
+            if (_extraLoincPopup.contains(e.target)) return;
+            cerrarExtraLoincPopup();
+        }, true);
+    });
+
+    function buscarLoincExtra(q, propId) {
+        var resEl = document.getElementById('pp-extra-loinc-results');
+        if (!resEl) return;
+        var muestra = getMuestraAnalisis();
+        var metodo  = getMetodoAnalisis();
+        var url = getLoincAdminBase() + 'loinc-buscar/?q=' + encodeURIComponent(q);
+        if (muestra) url += '&muestra=' + encodeURIComponent(muestra);
+        if (metodo)  url += '&metodo='  + encodeURIComponent(metodo);
+
+        fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (_extraLoincPropId !== propId) return; // respuesta stale
+                resEl = document.getElementById('pp-extra-loinc-results');
+                if (!resEl) return;
+                if (!data.results || data.results.length === 0) {
+                    resEl.innerHTML = '<div style="color:#999;font-size:12px;padding:6px;">Sin resultados.</div>';
+                    return;
+                }
+                resEl.innerHTML = '';
+                if (data.filtrado && (data.muestra || data.metodo)) {
+                    var badge = document.createElement('div');
+                    badge.style.cssText = 'font-size:11px;color:#1a6fa8;padding:3px 6px;margin-bottom:4px;background:#e8f0fe;border-radius:3px;';
+                    badge.textContent = '\uD83E\uDDEA Filtrado por: ' + [data.muestra, data.metodo].filter(Boolean).join(' \u00B7 ');
+                    resEl.appendChild(badge);
+                }
+                data.results.forEach(function (lc) {
+                    var row = document.createElement('div');
+                    row.style.cssText = 'padding:6px 8px;cursor:pointer;border-bottom:1px solid #f0f0f0;font-size:12px;';
+                    row.onmouseover = function () { row.style.background = '#e8f0fe'; };
+                    row.onmouseout  = function () { row.style.background = ''; };
+                    var meta = [lc.system, lc.property, lc.scale_typ, lc.method_typ ? '\u2699 ' + lc.method_typ : ''].filter(Boolean).join(' \u00B7 ');
+                    row.innerHTML =
+                        '<span style="font-weight:600;color:#1a6fa8;">' + escHtml(lc.loinc_num) + '</span>' +
+                        ' <span>' + escHtml(lc.shortname || lc.component || '') + '</span>' +
+                        (meta ? '<br><span style="color:#888;font-size:11px;">' + escHtml(meta) + '</span>' : '');
+                    row.addEventListener('click', function (ev) {
+                        ev.stopPropagation();
+                        _extraLoincMap[propId] = {
+                            loincId:   String(lc.id),
+                            loincNum:  lc.loinc_num,
+                            loincDesc: lc.shortname || lc.component || '',
+                        };
+                        cerrarExtraLoincPopup();
+                        actualizarHiddens();
+                        actualizarDisplayLoincExtra(propId);
+                        renderizarTablaCompleta(); // refresca la fila de la tabla inline
+                    });
+                    resEl.appendChild(row);
+                });
+            })
+            .catch(function () {
+                var el = document.getElementById('pp-extra-loinc-results');
+                if (el) el.innerHTML = '<div style="color:#c0392b;font-size:12px;padding:6px;">Error de conexi\u00F3n.</div>';
+            });
+    }
+
+    function actualizarDisplayLoincExtra(propId) {
+        var displayEl = document.getElementById('_loinc_display_extra_' + propId);
+        if (!displayEl) return;
+        var loinc = _extraLoincMap[propId];
+        displayEl.innerHTML = '';
+        if (loinc && loinc.loincNum) {
+            var numSpan = document.createElement('span');
+            numSpan.style.cssText = 'color:#1a6fa8;font-weight:600;font-size:12px;font-family:monospace;';
+            numSpan.textContent   = loinc.loincNum;
+            displayEl.appendChild(numSpan);
+            if (loinc.loincDesc) {
+                var descSpan = document.createElement('span');
+                descSpan.style.cssText = 'color:#555;font-size:11px;margin-left:4px;';
+                descSpan.textContent   = '\u2014 ' + loinc.loincDesc;
+                displayEl.appendChild(descSpan);
+            }
+            var clearBtn = document.createElement('button');
+            clearBtn.type            = 'button';
+            clearBtn.style.cssText   = 'border:none;background:none;color:#c0392b;cursor:pointer;font-size:11px;padding:0 4px;';
+            clearBtn.textContent     = '\u2715';
+            clearBtn.title           = 'Quitar LOINC';
+            clearBtn.addEventListener('click', function () {
+                delete _extraLoincMap[propId];
+                actualizarHiddens();
+                actualizarDisplayLoincExtra(propId);
+                renderizarTablaCompleta();
+            });
+            displayEl.appendChild(clearBtn);
+        } else {
+            var empty = document.createElement('span');
+            empty.style.cssText = 'color:#999;font-size:11px;';
+            empty.textContent   = 'Sin c\u00F3digo';
+            displayEl.appendChild(empty);
+        }
     }
 
     // -------------------------------------------------------
@@ -562,7 +944,8 @@
         var urlTipo  = '/admin_ext/plantilla/' + plantillaId + '/tipo_formato/';
         var urlProps = '/admin_ext/plantilla/' + plantillaId + '/propiedades/'
                        + (pacienteId ? '?paciente_id=' + pacienteId : '');
-        var urlDisp  = '/admin_ext/propiedades_disponibles/?plantilla_id=' + plantillaId;
+        var urlDisp  = '/admin_ext/propiedades_disponibles/?plantilla_id=' + plantillaId
+                       + (pacienteId ? '&paciente_id=' + pacienteId : '');
 
         Promise.all([
             fetch(urlTipo,  { headers: { 'X-Requested-With': 'XMLHttpRequest' } }).then(function (r) { return r.json(); }),
@@ -675,6 +1058,31 @@
         // Ocultar sección imágenes al inicio usando visibility (NO display:none)
         // para que los <input type="file"> sigan en el DOM y se envíen al POST.
         mostrarOcultarImagenes('');
+
+        // ── BOTÓN LOINC.org ───────────────────────────────────────────────
+        // Inyectar enlace directo a LOINC.org en el encabezado del inline
+        // de resultados. Útil para buscar un código LOINC específico sin
+        // tener que salir de la página.
+        (function agregarBotonLoinc() {
+            var grupo = getInlineGroup();
+            if (!grupo) return;
+            if (document.getElementById('_btn_loinc_org')) return;
+            var h2 = grupo.querySelector('h2');
+            if (!h2) return;
+            var a = document.createElement('a');
+            a.id        = '_btn_loinc_org';
+            a.href      = 'https://loinc.org/search/';
+            a.target    = '_blank';
+            a.rel       = 'noopener noreferrer';
+            a.title     = 'Abre el buscador oficial de LOINC.org en una nueva pestaña';
+            a.style.cssText =
+                'margin-left:14px;display:inline-flex;align-items:center;gap:4px;' +
+                'padding:3px 10px;background:#1a6fa8;color:#fff;border-radius:4px;' +
+                'text-decoration:none;font-size:12px;vertical-align:middle;' +
+                'font-weight:normal;white-space:nowrap;';
+            a.innerHTML = '\uD83C\uDF10 Buscar en LOINC.org';
+            h2.appendChild(a);
+        })();
 
         bindSelect2('id_plantilla', function () {
             if (!debeBloquearPrecarga()) onSeleccionCambio();

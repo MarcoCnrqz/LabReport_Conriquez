@@ -28,7 +28,7 @@ router.register(r'analisis', views.AnalisisViewSet)
 router.register(r'plantillas', views.PlantillaViewSet)
 
 # 🔥 FIX CRÍTICO: agregar propiedades
-router.register(r'propiedades', views.PropiedadViewSet)
+router.register(r'propiedades', views.PropiedadPlantillaViewSet)
 
 router.register(r'intervalos_referencia', views.IntervaloReferenciaViewSet)
 

@@ -10,8 +10,9 @@ from django.utils.safestring import mark_safe
 from .models import (
     Usuario, Laboratorio, Paciente, LoincCode,
     Propiedad, IntervaloReferencia, Plantilla, PlantillaPropiedad,
-    SeccionPlantilla, Analisis, ResultadoAnalisis,
+    Analisis, ResultadoAnalisis,
 )
+from .loinc_mappings import system_terms_for, method_terms_for, component_terms_for, attrs_for
 
 
 # =============================================================================
@@ -54,6 +55,30 @@ METODOS_SUGERIDOS = [
     'PCR',
 ]
 
+# Secciones/Series más comunes en laboratorios clínicos mexicanos.
+# Aparecen como sugerencias en el dropdown al asignar una propiedad a una
+# plantilla, eliminando la necesidad de gestionar una tabla separada.
+SECCIONES_SUGERIDAS = [
+    'FÓRMULA ROJA',
+    'FÓRMULA BLANCA',
+    'SERIE PLAQUETARIA',
+    'SERIE TROMBOCÍTICA',
+    'BIOQUÍMICA SANGUÍNEA',
+    'QUÍMICA SANGUÍNEA',
+    'PERFIL LIPÍDICO',
+    'PRUEBAS DE FUNCIÓN HEPÁTICA',
+    'PRUEBAS DE FUNCIÓN RENAL',
+    'ELECTRÓLITOS SÉRICOS',
+    'HORMONAS TIROIDEAS',
+    'HORMONAS REPRODUCTIVAS',
+    'MARCADORES TUMORALES',
+    'URIANÁLISIS',
+    'INMUNOLOGÍA / SEROLOGÍA',
+    'COAGULACIÓN',
+    'MICROBIOLOGÍA',
+    'GASOMETRÍA',
+]
+
 
 # =============================================================================
 # 2. WIDGET BASE CON DROPDOWN DE SUGERENCIAS
@@ -67,9 +92,9 @@ class SugerenciasDropdownWidget(forms.TextInput):
 
     def __init__(self, sugerencias, placeholder='', input_width='240px', *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.sugerencias   = sugerencias
-        self.placeholder   = placeholder
-        self.input_width   = input_width
+        self.sugerencias = sugerencias
+        self.placeholder = placeholder
+        self.input_width = input_width
 
     def render(self, name, value, attrs=None, renderer=None):
         attrs = attrs or {}
@@ -245,7 +270,50 @@ class PropiedadForm(forms.ModelForm):
         fields = '__all__'
 
     class Media:
-        js = ('admin/js/propiedad_tipo_toggle.js',)
+        js = ('admin/js/intervalo_toggle.js',)
+
+
+class PlantillaAdminForm(forms.ModelForm):
+    """
+    Formulario para Plantilla con dropdowns de sugerencias en
+    tipo_muestra y metodo. Estos campos en la plantilla sirven como
+    predeterminados para los análisis y ayudan a identificar el código
+    LOINC correcto según el espécimen y método analítico.
+    """
+    tipo_muestra = forms.CharField(
+        required=False,
+        widget=SugerenciasDropdownWidget(
+            sugerencias=TIPOS_MUESTRA_SUGERIDOS,
+            placeholder='Ej: Sangre total con EDTA, Suero...',
+            input_width='280px',
+        ),
+        label='Tipo de muestra (predeterminado)',
+        help_text=(
+            'Tipo de muestra habitual para esta plantilla. '
+            'El médico podrá modificarlo en cada análisis individual.'
+        ),
+    )
+    metodo = forms.CharField(
+        required=False,
+        widget=SugerenciasDropdownWidget(
+            sugerencias=METODOS_SUGERIDOS,
+            placeholder='Ej: Impedancia eléctrica, Aglutinación...',
+            input_width='280px',
+        ),
+        label='Método analítico (predeterminado)',
+        help_text=(
+            'Método analítico habitual de esta plantilla. '
+            'Junto con el tipo de muestra, determina el código LOINC correcto '
+            'para cada propiedad (ej. Hemoglobina tiene distintos LOINCs según el espécimen).'
+        ),
+    )
+
+    class Meta:
+        model  = Plantilla
+        fields = '__all__'
+
+    class Media:
+        js = ('admin/js/analisis_imagenes_toggle.js',)
 
 
 class AnalisisAdminForm(forms.ModelForm):
@@ -257,7 +325,7 @@ class AnalisisAdminForm(forms.ModelForm):
             input_width='260px',
         ),
         label='Tipo de muestra',
-        help_text='Ej: Sangre total con EDTA, Suero, Orina de 24h',
+        help_text='Sobreescribe el tipo de muestra predeterminado de la plantilla.',
     )
     metodo = forms.CharField(
         required=False,
@@ -267,7 +335,7 @@ class AnalisisAdminForm(forms.ModelForm):
             input_width='260px',
         ),
         label='Método',
-        help_text='Ej: Impedancia eléctrica y microscópica, Espectrofotometría',
+        help_text='Sobreescribe el método predeterminado de la plantilla.',
     )
 
     class Meta:
@@ -276,6 +344,28 @@ class AnalisisAdminForm(forms.ModelForm):
 
     class Media:
         js = ('admin/js/analisis_imagenes_toggle.js',)
+
+
+class PlantillaPropiedadForm(forms.ModelForm):
+    """
+    Formulario para la tabla intermedia Plantilla ↔ Propiedad.
+    El campo 'seccion' usa un dropdown de sugerencias — no hay tabla auxiliar.
+    El administrador escribe libremente o elige una de las series sugeridas.
+    """
+    seccion = forms.CharField(
+        required=False,
+        widget=SugerenciasDropdownWidget(
+            sugerencias=SECCIONES_SUGERIDAS,
+            placeholder='Ej: FÓRMULA ROJA, SERIE PLAQUETARIA...',
+            input_width='230px',
+        ),
+        label='Serie / Sección',
+        help_text='Agrupación visual en el reporte PDF. Opcional.',
+    )
+
+    class Meta:
+        model  = PlantillaPropiedad
+        fields = '__all__'
 
 
 class ResultadoAnalisisForm(forms.ModelForm):
@@ -330,9 +420,10 @@ class ResultadoAnalisisInline(admin.TabularInline):
     extra      = 0
     can_delete = True
 
-    fields          = ('propiedad', 'nombre_propiedad', 'valor', 'unidad',
+    fields          = ('propiedad', 'col_loinc_code',
+                       'valor', 'unidad',
                        'col_intervalo_referencia', 'col_valor_coloreado')
-    readonly_fields = ('propiedad', 'nombre_propiedad',
+    readonly_fields = ('propiedad', 'col_loinc_code',
                        'col_intervalo_referencia', 'col_valor_coloreado')
 
     def get_max_num(self, request, obj=None, **kwargs):
@@ -347,6 +438,21 @@ class ResultadoAnalisisInline(admin.TabularInline):
         if not obj.pk or not obj.analisis:
             return False
         return obj.analisis.propiedades_excluidas.filter(pk=obj.propiedad_id).exists()
+
+    def col_loinc_code(self, obj):
+        if not obj.pk:
+            return "-"
+        if obj.loinc_code:
+            return format_html(
+                '<span style="font-family:monospace;font-size:12px;'
+                'background:#e8f4fd;border:1px solid #aac8e8;border-radius:3px;'
+                'padding:2px 7px;color:#1a5276;">'
+                '🔬 {}</span> <span style="font-size:11px;color:#555;">{}</span>',
+                obj.loinc_code.loinc_num,
+                obj.loinc_code.shortname or '',
+            )
+        return format_html('<span style="color:#aaa;font-size:11px;">— sin LOINC —</span>')
+    col_loinc_code.short_description = "Código LOINC"
 
     def col_intervalo_referencia(self, obj):
         if self._esta_excluida(obj):
@@ -412,35 +518,23 @@ class ResultadoAnalisisInline(admin.TabularInline):
     col_valor_coloreado.short_description = "Estado del Valor"
 
 
-class SeccionPlantillaInline(admin.TabularInline):
-    """
-    Inline para gestionar las SERIES DE PLANTILLA (ej. Serie Roja, Serie Blanca)
-    dentro de una Plantilla. Se muestra arriba del picker de propiedades para que
-    el usuario defina las series antes de asignarlas a cada propiedad.
-    """
-    model        = SeccionPlantilla
-    extra        = 1
-    fields       = ('nombre', 'orden')
-    ordering     = ('orden',)
-    verbose_name = 'Serie de plantilla'
-    verbose_name_plural = 'Series de plantilla'
-
-
 class PlantillaPropiedadInline(admin.TabularInline):
+    """
+    Inline de propiedades en Plantilla.
+
+    El campo 'seccion' es ahora un CharField con dropdown de sugerencias.
+    Ya no requiere gestionar una tabla separada de secciones — el
+    administrador simplemente escribe o elige la serie directamente aquí.
+
+    NOTA: El guardado real se hace desde el picker JS (via save_model),
+    no desde este inline (save_formset lo omite). Este inline es de lectura
+    para ver el estado actual de las propiedades asignadas.
+    """
     model               = PlantillaPropiedad
+    form                = PlantillaPropiedadForm
     extra               = 1
     autocomplete_fields = ('propiedad', 'loinc_code')
     fields              = ('propiedad', 'loinc_code', 'seccion', 'orden')
-
-    def formfield_for_foreignkey(self, db_field, request, **kwargs):
-        # Filtrar el dropdown de sección para mostrar solo las de la plantilla actual
-        if db_field.name == 'seccion':
-            obj_id = request.resolver_match.kwargs.get('object_id')
-            if obj_id:
-                kwargs['queryset'] = SeccionPlantilla.objects.filter(plantilla_id=obj_id)
-            else:
-                kwargs['queryset'] = SeccionPlantilla.objects.none()
-        return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
 
 # =============================================================================
@@ -486,11 +580,11 @@ class PacienteAdmin(admin.ModelAdmin):
 
 @admin.register(Propiedad)
 class PropiedadAdmin(admin.ModelAdmin):
-    form                = PropiedadForm
-    list_display        = ('nombre_propiedad', 'tipo', 'unidad', 'get_plantillas')
-    list_filter         = ('tipo',)
-    search_fields       = ('nombre_propiedad',)
-    inlines             = [IntervaloReferenciaInline]
+    form          = PropiedadForm
+    list_display  = ('nombre_propiedad', 'tipo', 'unidad', 'get_plantillas')
+    list_filter   = ('tipo',)
+    search_fields = ('nombre_propiedad',)
+    inlines       = [IntervaloReferenciaInline]
 
     def get_readonly_fields(self, request, obj=None):
         return ('tipo',) if obj else ()
@@ -506,35 +600,27 @@ class PropiedadAdmin(admin.ModelAdmin):
 
 @admin.register(PlantillaPropiedad)
 class PlantillaPropiedadAdmin(admin.ModelAdmin):
-    list_display        = ('plantilla', 'propiedad', 'loinc_code', 'seccion', 'orden')
-    list_filter         = ('plantilla',)
-    search_fields       = ('plantilla__titulo', 'propiedad__nombre_propiedad', 'loinc_code__loinc_num')
+    form          = PlantillaPropiedadForm
+    list_display  = ('plantilla', 'propiedad', 'loinc_code', 'seccion', 'orden')
+    list_filter   = ('plantilla', 'seccion')
+    search_fields = ('plantilla__titulo', 'propiedad__nombre_propiedad', 'loinc_code__loinc_num', 'seccion')
     autocomplete_fields = ('plantilla', 'propiedad', 'loinc_code')
-
-
-@admin.register(SeccionPlantilla)
-class SeccionPlantillaAdmin(admin.ModelAdmin):
-    list_display  = ('plantilla', 'nombre', 'orden')
-    list_filter   = ('plantilla',)
-    search_fields = ('nombre', 'plantilla__titulo')
-    ordering      = ('plantilla', 'orden')
-    verbose_name  = 'Serie de plantilla'
 
 
 @admin.register(Plantilla)
 class PlantillaAdmin(admin.ModelAdmin):
+    form          = PlantillaAdminForm
     search_fields = ('titulo',)
-    list_display  = ('titulo', 'tipo_formato', 'loinc_code', 'get_num_propiedades', 'fecha_modificacion')
+    list_display  = ('titulo', 'tipo_formato', 'tipo_muestra', 'metodo',
+                     'loinc_code', 'get_num_propiedades', 'fecha_modificacion')
     autocomplete_fields = ('loinc_code',)
-    # SeccionPlantillaInline va PRIMERO para que el usuario defina las series
-    # antes de asignarlas a las propiedades en el picker.
-    inlines       = [SeccionPlantillaInline, PlantillaPropiedadInline]
+    inlines       = [PlantillaPropiedadInline]
 
     def get_num_propiedades(self, obj):
         return obj.propiedades.count()
     get_num_propiedades.short_description = "N° Propiedades"
 
-    # ── Endpoint AJAX para buscar códigos LOINC ───────────────────────────────
+    # ── Endpoints AJAX ────────────────────────────────────────────────────────
     def get_urls(self):
         from django.urls import path
         urls = super().get_urls()
@@ -553,36 +639,272 @@ class PlantillaAdmin(admin.ModelAdmin):
         return custom + urls
 
     def _loinc_buscar(self, request):
-        q       = request.GET.get('q', '').strip()
-        results = []
-        if q:
-            qs = LoincCode.objects.filter(
-                Q(loinc_num__icontains=q)  |
-                Q(shortname__icontains=q)  |
-                Q(component__icontains=q)
-            ).order_by('loinc_num')[:20]
-            results = [
-                {
-                    'id':        lc.pk,
-                    'loinc_num': lc.loinc_num,
-                    'shortname': lc.shortname or '',
-                    'component': lc.component or '',
-                    'system':    lc.system    or '',
-                }
-                for lc in qs
-            ]
-        return JsonResponse({'results': results})
+        """
+        GET /admin/LabApp/plantilla/loinc-buscar/
+            ?q=hemoglobina              ← nombre de la propiedad (español o inglés)
+            &muestra=Suero              ← tipo_muestra del formulario (opcional)
+            &metodo=Espectrofotometría  ← metodo del formulario (opcional)
+
+        Lógica de filtrado en 4 niveles (de más a menos estricto):
+
+        PASO 1 — Filtro base por texto (siempre activo)
+            Traduce `q` al inglés usando component_terms_for() y busca
+            en loinc_num, shortname y component con OR entre variantes.
+
+        PASO 2 — Filtro por property + scale_typ (semántico)
+            Si la propiedad tiene atributos definidos en NOMBRE_A_LOINC_ATTRS,
+            filtra por los valores de `property` y `scale_typ` esperados.
+            Esto descarta LOINCs semánticamente incorrectos (ej. NFr cuando
+            se busca una enzima con CCnc). Si este filtro deja 0 resultados
+            se omite (fallback), no se aborta.
+
+        PASO 3 — Filtro por system (tipo de muestra)
+            Traduce `muestra` y filtra por el campo `system`.
+            Si queda vacío, se relaja.
+
+        PASO 4 — Filtro por method_typ (método analítico)
+            A diferencia de la versión anterior, aquí SOLO se incluyen
+            LOINCs que tienen method_typ definido Y coincidente.
+            Los LOINCs sin method_typ se excluyen en la pasada estricta.
+            Si esa pasada queda vacía, se hace una segunda pasada que
+            incluye los nulls (relax), exactamente igual que antes pero
+            solo como fallback, no como comportamiento por defecto.
+
+        ORDEN DE RESULTADOS
+            Los resultados se ordenan por relevancia de coincidencia:
+              0 — coincide system Y method  (más específico)
+              1 — coincide solo system      (correcto para la muestra)
+              2 — coincide solo method      (método ok, muestra distinta)
+              3 — ninguno                   (fallback texto/semántica)
+            Dentro de cada grupo, loinc_num ASC: números bajos = códigos
+            canónicos más antiguos (ej. 718-7 Hemoglobin/Bld de 1995)
+            que son los más apropiados para uso clínico general.
+
+        Se devuelven máximo 20 resultados.
+        """
+        q       = request.GET.get('q',      '').strip()
+        muestra = request.GET.get('muestra', '').strip()
+        metodo  = request.GET.get('metodo',  '').strip()
+
+        if not q:
+            return JsonResponse({'results': [], 'filtrado': False})
+
+        # ── PASO 1: Filtro base por texto ────────────────────────────────────
+        # Traduce el nombre español al inglés y busca en los campos de texto.
+        terminos_q = component_terms_for(q)
+        q_text = Q()
+        for termino in terminos_q:
+            q_text |= (
+                Q(loinc_num__icontains=termino) |
+                Q(shortname__icontains=termino)  |
+                Q(component__icontains=termino)
+            )
+        qs_base = LoincCode.objects.filter(q_text)
+
+        # ── PASO 2: Filtro semántico por property + scale_typ ────────────────
+        # Consultar los atributos LOINC esperados para esta propiedad.
+        # Si no hay mapeo definido, attrs queda vacío y se omite este filtro.
+        attrs        = attrs_for(q)
+        prop_terms   = attrs.get('property', [])
+        scale_terms  = attrs.get('scale',    [])
+
+        qs_con_attrs = qs_base
+        attrs_activos = False
+
+        if prop_terms:
+            q_prop = Q()
+            for p in prop_terms:
+                q_prop |= Q(property__iexact=p)
+            qs_con_attrs = qs_con_attrs.filter(q_prop)
+            attrs_activos = True
+
+        if scale_terms and qs_con_attrs.exists():
+            q_scale = Q()
+            for s in scale_terms:
+                q_scale |= Q(scale_typ__iexact=s)
+            qs_con_attrs = qs_con_attrs.filter(q_scale)
+
+        # Si el filtro semántico dejó resultados, trabajamos con él;
+        # si no, volvemos al base (no abortar por un mapeo incompleto).
+        qs_semantico = qs_con_attrs if (attrs_activos and qs_con_attrs.exists()) else qs_base
+
+        # ── PASO 3 y 4: Filtros de contexto (system + method) ────────────────
+        system_terms = system_terms_for(muestra) if muestra else []
+        method_terms = method_terms_for(metodo)  if metodo  else []
+
+        def _q_system(terms):
+            q = Q()
+            for t in terms:
+                q |= Q(system__icontains=t)
+            return q
+
+        def _q_method_estricto(terms):
+            """Solo LOINCs con method_typ definido Y que coincida."""
+            q = Q()
+            for t in terms:
+                q |= Q(method_typ__icontains=t)
+            return q
+
+        def _q_method_relax(terms):
+            """LOINCs con method_typ coincidente O sin method definido (fallback)."""
+            q = Q(method_typ__isnull=True) | Q(method_typ='')
+            for t in terms:
+                q |= Q(method_typ__icontains=t)
+            return q
+
+        # Intentar las combinaciones de más a menos estrictas:
+        #   A) system estricto + method estricto
+        #   B) system estricto + method relax (method_typ nulo permitido)
+        #   C) solo system estricto (sin filtro de method)
+        #   D) sin filtros de contexto (solo semántico + texto)
+        nivel_filtrado = 'ninguno'
+        qs = qs_semantico
+
+        if system_terms and method_terms:
+            # A — más estricto
+            qs_a = qs_semantico.filter(_q_system(system_terms)).filter(
+                _q_method_estricto(method_terms)
+            )
+            if qs_a.exists():
+                qs = qs_a
+                nivel_filtrado = 'system+method_estricto'
+            else:
+                # B — method con relax (incluye sin method)
+                qs_b = qs_semantico.filter(_q_system(system_terms)).filter(
+                    _q_method_relax(method_terms)
+                )
+                if qs_b.exists():
+                    qs = qs_b
+                    nivel_filtrado = 'system+method_relax'
+                else:
+                    # C — solo system
+                    qs_c = qs_semantico.filter(_q_system(system_terms))
+                    if qs_c.exists():
+                        qs = qs_c
+                        nivel_filtrado = 'solo_system'
+                    # D — sin contexto: qs queda como qs_semantico
+
+        elif system_terms:
+            qs_c = qs_semantico.filter(_q_system(system_terms))
+            if qs_c.exists():
+                qs = qs_c
+                nivel_filtrado = 'solo_system'
+
+        elif method_terms:
+            qs_a = qs_semantico.filter(_q_method_estricto(method_terms))
+            if qs_a.exists():
+                qs = qs_a
+                nivel_filtrado = 'solo_method_estricto'
+            else:
+                qs_b = qs_semantico.filter(_q_method_relax(method_terms))
+                if qs_b.exists():
+                    qs = qs_b
+                    nivel_filtrado = 'solo_method_relax'
+
+        # ── Ordenación por relevancia de coincidencia ────────────────────────
+        #
+        # El criterio de orden es RELEVANCIA, no presencia de método.
+        # El error anterior priorizaba LOINCs con method_typ definido, lo que
+        # empujaba al fondo los códigos canónicos sin método (ej. 718-7
+        # Hemoglobin/Bld), que son precisamente los más correctos para la
+        # mayoría de analitos de biometría hemática.
+        #
+        # Nueva prioridad (menor número = aparece primero):
+        #   0 — coincide system Y method  (más específico)
+        #   1 — coincide solo system      (correcto para la muestra)
+        #   2 — coincide solo method      (método correcto, muestra distinta)
+        #   3 — ninguno                   (fallback por texto/semántica)
+        #
+        # Dentro de cada grupo, loinc_num ASC: los números bajos en LOINC
+        # son códigos más antiguos y generalmente más canónicos (718-7
+        # es de 1995, los de 5 dígitos son más recientes y específicos).
+        from django.db.models import Case, When, Value, IntegerField
+        from django.db.models.functions import Length
+
+        # Construir los Q de coincidencia para la anotación
+        if system_terms:
+            q_sys_match = Q()
+            for t in system_terms:
+                q_sys_match |= Q(system__icontains=t)
+        else:
+            q_sys_match = Q(pk__isnull=True)  # nunca coincide si no hay términos
+
+        if method_terms:
+            q_met_match = Q()
+            for t in method_terms:
+                q_met_match |= Q(method_typ__icontains=t)
+        else:
+            q_met_match = Q(pk__isnull=True)  # nunca coincide si no hay términos
+
+        qs = qs.annotate(
+            relevancia=Case(
+                When(q_sys_match & q_met_match, then=Value(0)),
+                When(q_sys_match,               then=Value(1)),
+                When(q_met_match,               then=Value(2)),
+                default=Value(3),
+                output_field=IntegerField(),
+            )
+        # FIX: loinc_num es CharField. '20570-8' < '718-7' en string sort
+        # porque '2'<'7'. Ordenar por longitud primero pone el código canónico
+        # más corto (718-7, len=5) antes que los de 5 dígitos (20570-8, len=7).
+        ).order_by('relevancia', Length('loinc_num'), 'loinc_num')
+
+        # ── Indicador de filtrado para el JS ─────────────────────────────────
+        filtrado = nivel_filtrado not in ('ninguno',)
+
+        resultados = list(qs[:20])
+
+        results = [
+            {
+                'id':          lc.pk,
+                'loinc_num':   lc.loinc_num,
+                'shortname':   lc.shortname  or '',
+                'component':   lc.component  or '',
+                'system':      lc.system     or '',
+                'property':    lc.property   or '',
+                'scale_typ':   lc.scale_typ  or '',
+                'method_typ':  lc.method_typ or '',
+                'tiene_method': bool(lc.method_typ),
+            }
+            for lc in resultados
+        ]
+
+        return JsonResponse({
+            'results':         results,
+            'filtrado':        filtrado,
+            'nivel_filtrado':  nivel_filtrado,
+            'muestra':         muestra or '',
+            'metodo':          metodo  or '',
+        })
 
     def _secciones_json(self, request, plantilla_id):
         """
-        Devuelve las secciones de una plantilla para que el picker JS
-        pueda construir el dropdown de sección por cada propiedad.
+        Devuelve las secciones únicas ya asignadas en esta plantilla.
+        El picker JS las usa para poblar el dropdown de serie/sección.
+        Formato compatible con el JS anterior: lista de {id, nombre}.
+        Aquí 'id' y 'nombre' son ambos el texto de la sección (ya no hay FK).
+
         GET /admin/LabApp/plantilla/<id>/secciones/
         """
-        secciones = SeccionPlantilla.objects.filter(
-            plantilla_id=plantilla_id
-        ).order_by('orden').values('id', 'nombre', 'orden')
-        return JsonResponse({'secciones': list(secciones)})
+        secciones_qs = (
+            PlantillaPropiedad.objects
+            .filter(plantilla_id=plantilla_id)
+            .exclude(seccion__isnull=True)
+            .exclude(seccion='')
+            .values_list('seccion', flat=True)
+            .distinct()
+            .order_by('seccion')
+        )
+        # Incluir también las sugerencias globales para que el picker tenga
+        # siempre las series estándar disponibles aunque no estén en la BD aún.
+        existentes = set(secciones_qs)
+        todas = list(existentes) + [s for s in SECCIONES_SUGERIDAS if s not in existentes]
+        return JsonResponse({
+            'secciones': [
+                {'id': s, 'nombre': s}
+                for s in todas
+            ]
+        })
 
     # ── JSON para el picker ───────────────────────────────────────────────────
     def _build_json_scripts(self, obj):
@@ -597,34 +919,43 @@ class PlantillaAdmin(admin.ModelAdmin):
             for p in all_props
         ]
 
-        existing_data = []
+        existing_data  = []
         secciones_data = []
 
         if obj and obj.pk:
-            # Secciones definidas para esta plantilla
-            for sec in obj.secciones.order_by('orden'):
-                secciones_data.append({
-                    'id':     sec.pk,
-                    'nombre': sec.nombre,
-                    'orden':  sec.orden,
-                })
+            # Secciones únicas ya guardadas en esta plantilla
+            secciones_guardadas = set(
+                PlantillaPropiedad.objects
+                .filter(plantilla=obj)
+                .exclude(seccion__isnull=True)
+                .exclude(seccion='')
+                .values_list('seccion', flat=True)
+                .distinct()
+            )
+            todas_secciones = list(secciones_guardadas) + [
+                s for s in SECCIONES_SUGERIDAS if s not in secciones_guardadas
+            ]
+            secciones_data = [{'id': s, 'nombre': s} for s in todas_secciones]
 
             for pp in (
                 PlantillaPropiedad.objects
                 .filter(plantilla=obj)
-                .select_related('propiedad', 'loinc_code', 'seccion')
-                .order_by('seccion__orden', 'orden', 'propiedad__nombre_propiedad')
+                .select_related('propiedad', 'loinc_code')
+                .order_by('seccion', 'orden', 'propiedad__nombre_propiedad')
             ):
                 existing_data.append({
-                    'propId':    pp.propiedad_id,
-                    'nombre':    pp.propiedad.nombre_propiedad,
-                    'loincId':   pp.loinc_code_id or '',
-                    'loincNum':  pp.loinc_code.loinc_num  if pp.loinc_code else '',
-                    'loincDesc': pp.loinc_code.shortname  if pp.loinc_code else '',
-                    'orden':     pp.orden,
-                    'seccionId': pp.seccion_id or '',
-                    'seccionNombre': pp.seccion.nombre if pp.seccion else '',
+                    'propId':        pp.propiedad_id,
+                    'nombre':        pp.propiedad.nombre_propiedad,
+                    'loincId':       pp.loinc_code_id or '',
+                    'loincNum':      pp.loinc_code.loinc_num  if pp.loinc_code else '',
+                    'loincDesc':     pp.loinc_code.shortname  if pp.loinc_code else '',
+                    'orden':         pp.orden,
+                    'seccionNombre': pp.seccion or '',
+                    'seccionId':     pp.seccion or '',
                 })
+        else:
+            # Plantilla nueva: mostrar todas las sugerencias en el picker
+            secciones_data = [{'id': s, 'nombre': s} for s in SECCIONES_SUGERIDAS]
 
         return mark_safe(
             '<script id="pp-props-data" type="application/json">'
@@ -640,7 +971,20 @@ class PlantillaAdmin(admin.ModelAdmin):
 
     def get_fieldsets(self, request, obj=None):
         base = [
-            (None, {'fields': ('titulo', 'tipo_formato', 'loinc_code', 'texto_justificado_default')}),
+            (None, {
+                'fields': ('titulo', 'tipo_formato', 'loinc_code', 'texto_justificado_default'),
+            }),
+            ('Muestra y Método', {
+                'fields': ('tipo_muestra', 'metodo'),
+                'description': (
+                    '📋 Estos valores son los predeterminados para todos los análisis '
+                    'creados con esta plantilla. Definirlos correctamente ayuda a '
+                    'identificar el código LOINC correcto para cada propiedad '
+                    '(una misma magnitud, p. ej. Hemoglobina, puede tener distintos '
+                    'LOINCs según el espécimen o el método analítico). '
+                    'El médico podrá modificarlos en cada análisis individual si es necesario.'
+                ),
+            }),
         ]
         base.append((
             None,
@@ -652,31 +996,42 @@ class PlantillaAdmin(admin.ModelAdmin):
         return base
 
     # ── Guardar desde el picker ───────────────────────────────────────────────
-    # El picker envía cuatro campos ocultos:
-    #   pp_picker_ids        = "3,7,12"
-    #   pp_picker_loinc_ids  = "5,,8"
-    #   pp_picker_ordenes    = "1,2,3"
-    #   pp_picker_seccion_ids = "1,1,2"   ← NUEVO: id de SeccionPlantilla por prop
+    # El picker JS envía cuatro campos ocultos:
+    #   pp_picker_ids        = "3,7,12"       → IDs de Propiedad
+    #   pp_picker_loinc_ids  = "5,,8"         → IDs de LoincCode (vacío = sin LOINC)
+    #   pp_picker_ordenes    = "1,2,3"        → Orden de cada propiedad
+    #   pp_picker_secciones  = "FÓRMULA ROJA,,FÓRMULA ROJA"
+    #                                         → Nombre de serie (string, no ID)
+    #
+    # NOTA PARA EL JS (plantilla_propiedades_picker.js):
+    #   - El campo oculto de sección debe llamarse 'pp_picker_secciones'
+    #     (antes era 'pp_picker_seccion_ids' con IDs enteros).
+    #   - Ahora envía el NOMBRE de la sección como texto, ej. "FÓRMULA ROJA".
+    #   - El campo 'seccionId' en pp-existing-data ya NO es un entero,
+    #     es el mismo texto que 'seccionNombre'.
 
     def save_model(self, request, obj, form, change):
         super().save_model(request, obj, form, change)
 
-        ids_raw        = request.POST.get('pp_picker_ids',         '').strip()
-        loinc_ids_raw  = request.POST.get('pp_picker_loinc_ids',   '').strip()
-        ordenes_raw    = request.POST.get('pp_picker_ordenes',     '').strip()
-        seccion_ids_raw = request.POST.get('pp_picker_seccion_ids', '').strip()
+        ids_raw       = request.POST.get('pp_picker_ids',       '').strip()
+        loinc_ids_raw = request.POST.get('pp_picker_loinc_ids', '').strip()
+        ordenes_raw   = request.POST.get('pp_picker_ordenes',   '').strip()
+        secciones_raw = request.POST.get('pp_picker_secciones', '').strip()
+        # Compatibilidad con el nombre anterior (por si el JS aún lo manda)
+        if not secciones_raw:
+            secciones_raw = request.POST.get('pp_picker_seccion_ids', '').strip()
 
         if not ids_raw:
             return
 
-        ids_list        = [i.strip() for i in ids_raw.split(',')        if i.strip()]
-        loinc_ids_list  = [l.strip() for l in loinc_ids_raw.split(',')]
-        ordenes_list    = [o.strip() for o in ordenes_raw.split(',')]
-        seccion_ids_list = [s.strip() for s in seccion_ids_raw.split(',')]
+        ids_list       = [i.strip() for i in ids_raw.split(',')       if i.strip()]
+        loinc_ids_list = [l.strip() for l in loinc_ids_raw.split(',')]
+        ordenes_list   = [o.strip() for o in ordenes_raw.split(',')]
+        secciones_list = [s.strip() for s in secciones_raw.split(',')]
 
-        while len(loinc_ids_list)   < len(ids_list): loinc_ids_list.append('')
-        while len(ordenes_list)     < len(ids_list): ordenes_list.append('')
-        while len(seccion_ids_list) < len(ids_list): seccion_ids_list.append('')
+        while len(loinc_ids_list) < len(ids_list): loinc_ids_list.append('')
+        while len(ordenes_list)   < len(ids_list): ordenes_list.append('')
+        while len(secciones_list) < len(ids_list): secciones_list.append('')
 
         PlantillaPropiedad.objects.filter(plantilla=obj).delete()
 
@@ -688,28 +1043,21 @@ class PlantillaAdmin(admin.ModelAdmin):
             except Propiedad.DoesNotExist:
                 continue
 
-            loinc_id_str   = loinc_ids_list[idx]   if idx < len(loinc_ids_list)   else ''
-            orden_str      = ordenes_list[idx]      if idx < len(ordenes_list)     else ''
-            seccion_id_str = seccion_ids_list[idx]  if idx < len(seccion_ids_list) else ''
+            loinc_id_str = loinc_ids_list[idx] if idx < len(loinc_ids_list) else ''
+            orden_str    = ordenes_list[idx]    if idx < len(ordenes_list)   else ''
+            seccion_str  = secciones_list[idx]  if idx < len(secciones_list) else ''
 
             orden = int(orden_str) if orden_str.isdigit() else (idx + 1)
 
-            loinc_obj   = None
-            seccion_obj = None
-
+            loinc_obj = None
             if loinc_id_str.isdigit():
                 loinc_obj = LoincCode.objects.filter(pk=int(loinc_id_str)).first()
-
-            if seccion_id_str.isdigit():
-                seccion_obj = SeccionPlantilla.objects.filter(
-                    pk=int(seccion_id_str), plantilla=obj
-                ).first()
 
             PlantillaPropiedad.objects.create(
                 plantilla  = obj,
                 propiedad  = propiedad,
                 loinc_code = loinc_obj,
-                seccion    = seccion_obj,
+                seccion    = seccion_str or None,
                 orden      = orden,
             )
 
@@ -738,8 +1086,15 @@ class AnalisisAdmin(admin.ModelAdmin):
 
     fieldsets = (
         ('Datos del Análisis', {
-            'fields': ('paciente', 'plantilla', 'creado_por', 'status',
-                       'tipo_muestra', 'metodo'),
+            'fields': ('paciente', 'plantilla', 'creado_por', 'status'),
+        }),
+        ('Muestra y Método', {
+            'fields': ('tipo_muestra', 'metodo'),
+            'description': (
+                '📋 Se pre-llenan desde los valores predeterminados de la plantilla. '
+                'Modifíquelos aquí si para este análisis en particular se usó '
+                'un espécimen o método diferente.'
+            ),
         }),
         ('Fechas y Horas', {
             'fields': ('fecha_muestra', 'hora_toma', 'hora_impresion'),
@@ -759,7 +1114,172 @@ class AnalisisAdmin(admin.ModelAdmin):
             return ('paciente', 'plantilla', 'propiedades_excluidas', 'propiedades_extra')
         return ()
 
+    def get_urls(self):
+        from django.urls import path
+        urls = super().get_urls()
+        custom = [
+            path(
+                'loinc-buscar/',
+                self.admin_site.admin_view(self._loinc_buscar),
+                name='analisis_loinc_buscar',
+            ),
+        ]
+        return custom + urls
+
+    def _loinc_buscar(self, request):
+        """
+        Endpoint LOINC para el picker de propiedades extra en Analisis.
+        Misma lógica que PlantillaAdmin._loinc_buscar.
+        URL: /admin/LabApp/analisis/loinc-buscar/?q=...&muestra=...&metodo=...
+        """
+        from django.db.models import Case, When, Value, IntegerField
+        from django.db.models.functions import Length
+
+        q       = request.GET.get('q',      '').strip()
+        muestra = request.GET.get('muestra', '').strip()
+        metodo  = request.GET.get('metodo',  '').strip()
+
+        if not q:
+            return JsonResponse({'results': [], 'filtrado': False})
+
+        terminos_q = component_terms_for(q)
+        q_text = Q()
+        for termino in terminos_q:
+            q_text |= (
+                Q(loinc_num__icontains=termino) |
+                Q(shortname__icontains=termino)  |
+                Q(component__icontains=termino)
+            )
+        qs_base = LoincCode.objects.filter(q_text)
+
+        attrs        = attrs_for(q)
+        prop_terms   = attrs.get('property', [])
+        scale_terms  = attrs.get('scale',    [])
+
+        qs_con_attrs  = qs_base
+        attrs_activos = False
+
+        if prop_terms:
+            q_prop = Q()
+            for p in prop_terms:
+                q_prop |= Q(property__iexact=p)
+            qs_con_attrs  = qs_con_attrs.filter(q_prop)
+            attrs_activos = True
+
+        if scale_terms and qs_con_attrs.exists():
+            q_scale = Q()
+            for s in scale_terms:
+                q_scale |= Q(scale_typ__iexact=s)
+            qs_con_attrs = qs_con_attrs.filter(q_scale)
+
+        qs_semantico = qs_con_attrs if (attrs_activos and qs_con_attrs.exists()) else qs_base
+
+        system_terms = system_terms_for(muestra) if muestra else []
+        method_terms = method_terms_for(metodo)  if metodo  else []
+
+        def _q_system(terms):
+            q = Q()
+            for t in terms:
+                q |= Q(system__icontains=t)
+            return q
+
+        def _q_method_estricto(terms):
+            q = Q()
+            for t in terms:
+                q |= Q(method_typ__icontains=t)
+            return q
+
+        def _q_method_relax(terms):
+            q = Q(method_typ__isnull=True) | Q(method_typ='')
+            for t in terms:
+                q |= Q(method_typ__icontains=t)
+            return q
+
+        nivel_filtrado = 'ninguno'
+        qs = qs_semantico
+
+        if system_terms and method_terms:
+            qs_a = qs_semantico.filter(_q_system(system_terms)).filter(_q_method_estricto(method_terms))
+            if qs_a.exists():
+                qs = qs_a; nivel_filtrado = 'system+method_estricto'
+            else:
+                qs_b = qs_semantico.filter(_q_system(system_terms)).filter(_q_method_relax(method_terms))
+                if qs_b.exists():
+                    qs = qs_b; nivel_filtrado = 'system+method_relax'
+                else:
+                    qs_c = qs_semantico.filter(_q_system(system_terms))
+                    if qs_c.exists():
+                        qs = qs_c; nivel_filtrado = 'solo_system'
+        elif system_terms:
+            qs_c = qs_semantico.filter(_q_system(system_terms))
+            if qs_c.exists():
+                qs = qs_c; nivel_filtrado = 'solo_system'
+        elif method_terms:
+            qs_a = qs_semantico.filter(_q_method_estricto(method_terms))
+            if qs_a.exists():
+                qs = qs_a; nivel_filtrado = 'solo_method_estricto'
+            else:
+                qs_b = qs_semantico.filter(_q_method_relax(method_terms))
+                if qs_b.exists():
+                    qs = qs_b; nivel_filtrado = 'solo_method_relax'
+
+        if system_terms:
+            q_sys_match = Q()
+            for t in system_terms:
+                q_sys_match |= Q(system__icontains=t)
+        else:
+            q_sys_match = Q(pk__isnull=True)
+
+        if method_terms:
+            q_met_match = Q()
+            for t in method_terms:
+                q_met_match |= Q(method_typ__icontains=t)
+        else:
+            q_met_match = Q(pk__isnull=True)
+
+        qs = qs.annotate(
+            relevancia=Case(
+                When(q_sys_match & q_met_match, then=Value(0)),
+                When(q_sys_match,               then=Value(1)),
+                When(q_met_match,               then=Value(2)),
+                default=Value(3),
+                output_field=IntegerField(),
+            )
+        ).order_by('relevancia', Length('loinc_num'), 'loinc_num')
+
+        filtrado   = nivel_filtrado not in ('ninguno',)
+        resultados = list(qs[:20])
+
+        results = [
+            {
+                'id':           lc.pk,
+                'loinc_num':    lc.loinc_num,
+                'shortname':    lc.shortname  or '',
+                'component':    lc.component  or '',
+                'system':       lc.system     or '',
+                'property':     lc.property   or '',
+                'scale_typ':    lc.scale_typ  or '',
+                'method_typ':   lc.method_typ or '',
+                'tiene_method': bool(lc.method_typ),
+            }
+            for lc in resultados
+        ]
+
+        return JsonResponse({
+            'results':        results,
+            'filtrado':       filtrado,
+            'nivel_filtrado': nivel_filtrado,
+            'muestra':        muestra or '',
+            'metodo':         metodo  or '',
+        })
+
     def save_model(self, request, obj, form, change):
+        if not change and obj.plantilla:
+            if not obj.tipo_muestra and obj.plantilla.tipo_muestra:
+                obj.tipo_muestra = obj.plantilla.tipo_muestra
+            if not obj.metodo and obj.plantilla.metodo:
+                obj.metodo = obj.plantilla.metodo
+
         obj.skip_signal = True
         super().save_model(request, obj, form, change)
 
@@ -776,6 +1296,16 @@ class AnalisisAdmin(admin.ModelAdmin):
                 if n.strip()
             ]
 
+            # LOINCs asignados a las propiedades extra desde el picker JS
+            loinc_extra_raw = request.POST.get('_propiedades_extra_loinc_ids', '')
+            loinc_extra_list = [l.strip() for l in loinc_extra_raw.split(',')]
+            # Construir dict propId → loincId para usarlo al crear ResultadoAnalisis
+            extra_loinc_map = {}
+            for i, prop_id in enumerate(ids_extra):
+                loinc_str = loinc_extra_list[i] if i < len(loinc_extra_list) else ''
+                if loinc_str.isdigit():
+                    extra_loinc_map[prop_id] = int(loinc_str)
+
             if ids_extra:
                 obj.propiedades_extra.set(Propiedad.objects.filter(id__in=ids_extra))
 
@@ -784,28 +1314,36 @@ class AnalisisAdmin(admin.ModelAdmin):
                     Propiedad.objects.filter(nombre_propiedad__in=nombres_excluidas)
                 )
 
-            paciente   = obj.paciente
-            edad_meses = paciente.edad_en_meses
+            paciente      = obj.paciente
+            edad_meses    = paciente.edad_en_meses
+            ids_extra_set = set(ids_extra)  # props añadidas explícitamente por el usuario
 
             for propiedad in obj.get_propiedades_efectivas():
+                es_extra         = propiedad.pk in ids_extra_set
                 total_intervalos = propiedad.intervalos.count()
+
                 if total_intervalos == 0:
                     crear = True
                 else:
-                    crear = propiedad.intervalos.filter(
+                    intervalo_match = propiedad.intervalos.filter(
                         Q(sexo=paciente.sexo) | Q(sexo="AMBOS")
                     ).filter(
                         Q(edad_min_meses__isnull=True) | Q(edad_min_meses__lte=edad_meses)
                     ).filter(
                         Q(edad_max_meses__isnull=True) | Q(edad_max_meses__gte=edad_meses)
                     ).exists()
+                    # Las propiedades extra se crean SIEMPRE aunque no haya intervalo
+                    # para este paciente: el usuario las agregó de forma explícita.
+                    crear = intervalo_match or es_extra
 
                 if crear:
                     try:
                         pp    = PlantillaPropiedad.objects.get(plantilla=obj.plantilla, propiedad=propiedad)
                         loinc = pp.loinc_code
                     except (PlantillaPropiedad.DoesNotExist, AttributeError):
-                        loinc = None
+                        # Propiedad extra: buscar LOINC en el mapa enviado por el picker JS
+                        loinc_id_extra = extra_loinc_map.get(propiedad.pk)
+                        loinc = LoincCode.objects.filter(pk=loinc_id_extra).first() if loinc_id_extra else None
 
                     ResultadoAnalisis.objects.get_or_create(
                         analisis=obj,

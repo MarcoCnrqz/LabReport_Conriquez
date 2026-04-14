@@ -2,10 +2,17 @@
  * intervalo_toggle.js
  * Ubicación: LabApp/static/admin/js/intervalo_toggle.js
  *
- * Oculta / muestra:
- *   1. El inline "Intervalos de referencia" (#intervalos-group)
- *   2. El campo "Unidad" (.field-unidad)
- * …según si el tipo de propiedad es Cualitativo o Cuantitativo.
+ * Oculta / muestra según si el tipo de propiedad es Cualitativo o Cuantitativo:
+ *
+ *   CUANTITATIVO:
+ *     ✅ Muestra  → Intervalos de referencia (#intervalos-group)
+ *     ✅ Muestra  → Campo "Unidad" (.field-unidad)
+ *     ❌ Oculta   → Campo "Opciones cualitativas" (.field-opciones_cualitativas)
+ *
+ *   CUALITATIVO:
+ *     ❌ Oculta   → Intervalos de referencia (#intervalos-group)
+ *     ❌ Oculta   → Campo "Unidad" (.field-unidad)
+ *     ✅ Muestra  → Campo "Opciones cualitativas" (.field-opciones_cualitativas)
  *
  * Funciona tanto en modo CREACIÓN (select activo #id_tipo)
  * como en modo EDICIÓN (tipo renderizado como texto readonly en .field-tipo .readonly).
@@ -18,7 +25,7 @@
 
     var INLINE_GROUP_ID = 'intervalos-group';
 
-    // ── Aviso informativo ────────────────────────────────────────────────────
+    // ── Aviso informativo (cualitativo) ─────────────────────────────────────
     var AVISO_ID = '_intervalo_toggle_aviso';
 
     function mostrarAviso(refElement) {
@@ -42,7 +49,7 @@
         if (aviso) aviso.remove();
     }
 
-    // ── Lógica central de mostrar / ocultar ─────────────────────────────────
+    // ── Helpers de campo ────────────────────────────────────────────────────
 
     function getInlineGroup() {
         return document.getElementById(INLINE_GROUP_ID);
@@ -51,15 +58,26 @@
     /**
      * Busca la fila de campo (.form-row) que contiene un elemento con la
      * clase dada. Funciona con el admin estándar de Django y con Jazzmin.
+     * Prueba múltiples selectores para mayor robustez.
      */
     function getFieldRow(fieldClass) {
-        // Intenta primero el selector directo de Django admin
-        var el = document.querySelector('.' + fieldClass);
+        // Intentar con el nombre exacto de clase (guiones bajos)
+        var selectors = [
+            '.' + fieldClass,
+            // Django a veces usa guión medio en vez de guión bajo
+            '.' + fieldClass.replace(/_/g, '-'),
+        ];
+
+        var el = null;
+        for (var i = 0; i < selectors.length; i++) {
+            el = document.querySelector(selectors[i]);
+            if (el) break;
+        }
         if (!el) return null;
-        // Sube hasta encontrar un <div> o <tr> que sea la fila del campo
-        var row = el.closest('.form-row') || el.closest('tr') || el.parentElement;
-        return row;
+        return el.closest('.form-row') || el.closest('tr') || el.parentElement;
     }
+
+    // ── Lógica central ──────────────────────────────────────────────────────
 
     function ajustar(esCualitativo) {
         // 1. Inline de intervalos de referencia
@@ -76,12 +94,34 @@
             console.warn('[intervalo_toggle] No se encontró id="' + INLINE_GROUP_ID + '".');
         }
 
-        // 2. Campo "Unidad"
+        // 2. Campo "Unidad" — solo para cuantitativos
         var unidadRow = getFieldRow('field-unidad');
         if (unidadRow) {
             unidadRow.style.display = esCualitativo ? 'none' : '';
         } else {
             console.warn('[intervalo_toggle] No se encontró .field-unidad');
+        }
+
+        // 3. Campo "Opciones cualitativas" — solo para cualitativos
+        //    Se busca por la clase del contenedor que genera Django admin.
+        //    También se intenta localizar por el id del input como fallback.
+        var opcionesRow = getFieldRow('field-opciones_cualitativas');
+
+        // Fallback: buscar por el id del input que genera el widget
+        if (!opcionesRow) {
+            var inputOpciones = document.getElementById('id_opciones_cualitativas');
+            if (inputOpciones) {
+                opcionesRow = inputOpciones.closest('.form-row') ||
+                              inputOpciones.closest('tr') ||
+                              inputOpciones.closest('p') ||
+                              inputOpciones.parentElement;
+            }
+        }
+
+        if (opcionesRow) {
+            opcionesRow.style.display = esCualitativo ? '' : 'none';
+        } else {
+            console.warn('[intervalo_toggle] No se encontró .field-opciones_cualitativas ni #id_opciones_cualitativas');
         }
     }
 
@@ -99,7 +139,6 @@
     }
 
     // ── Reintento con límite ─────────────────────────────────────────────────
-    // Llama a fn() hasta que devuelva true o se agoten los intentos (~100 ms).
 
     function conReintentos(fn, maxIntentos, intervalo) {
         var intentos = 0;
@@ -121,16 +160,19 @@
         var selectTipo = document.getElementById('id_tipo');
 
         if (selectTipo) {
-            // CREACIÓN: select activo
+            // CREACIÓN: select activo.
+            // Si el valor es vacío (opción "-------"), se trata como cuantitativo
+            // (estado por defecto más seguro: mostrar intervalos, ocultar opciones cuali).
             var valInicial = selectTipo.value.trim().toLowerCase();
-            ajustar(valInicial === 'cualitativo');
+            var esCualiInicial = (valInicial === 'cualitativo');
+            ajustar(esCualiInicial);
 
             selectTipo.addEventListener('change', function () {
                 ajustar(this.value.trim().toLowerCase() === 'cualitativo');
             });
 
         } else {
-            // EDICIÓN: tipo renderizado como texto readonly
+            // EDICIÓN: tipo renderizado como texto readonly.
             // Doble rAF para esperar a que el DOM esté completamente pintado,
             // incluyendo widgets custom (span + botón 📋).
             requestAnimationFrame(function () {

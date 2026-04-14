@@ -116,16 +116,20 @@ class Paciente(models.Model):
 # =============================================================================
 
 class LoincCode(models.Model):
-    loinc_num  = models.CharField(max_length=20, unique=True)
+    loinc_num  = models.CharField(max_length=20,  unique=True)
     shortname  = models.CharField(max_length=255, null=True, blank=True)
     component  = models.TextField(null=True, blank=True)
     property   = models.CharField(max_length=50,  null=True, blank=True)
     system     = models.CharField(max_length=100, null=True, blank=True)
     scale_typ  = models.CharField(max_length=20,  null=True, blank=True)
+    method_typ = models.CharField(
+        max_length=150, null=True, blank=True,
+        verbose_name='method',
+        help_text='Campo METHOD_TYP del CSV LOINC. Ej: Automated count, PCR, ELISA.',
+    )
 
     def __str__(self):
         return f"{self.loinc_num} - {self.shortname}"
-
 
 # =============================================================================
 # PROPIEDAD
@@ -196,8 +200,17 @@ class Plantilla(models.Model):
     sincronizado              = models.BooleanField(default=False)
     fecha_modificacion        = models.DateTimeField(auto_now=True)
 
-    # Código LOINC del panel completo (ej. 58410-2 para Biometría Hemática).
-    # Opcional — para interoperabilidad futura con HL7/FHIR.
+    tipo_muestra = models.CharField(
+        max_length=150, null=True, blank=True,
+        verbose_name='Tipo de muestra',
+        help_text='Ej: Sangre total con EDTA, Suero, Orina de 24h',
+    )
+    metodo = models.CharField(
+        max_length=200, null=True, blank=True,
+        verbose_name='Método analítico',
+        help_text='Ej: Impedancia eléctrica y microscópica, Espectrofotometría',
+    )
+
     loinc_code = models.ForeignKey(
         LoincCode,
         on_delete=models.SET_NULL,
@@ -217,76 +230,71 @@ class Plantilla(models.Model):
 
 
 # =============================================================================
-# SECCIÓN DE PLANTILLA  (ej. FÓRMULA ROJA, FÓRMULA BLANCA)
-# =============================================================================
-
-class SeccionPlantilla(models.Model):
-    """
-    Agrupa propiedades dentro de una plantilla bajo un subtítulo visible
-    en el reporte PDF (ej. FÓRMULA ROJA, SERIE TROMBOCÍTICA).
-    Es opcional: plantillas sin secciones funcionan exactamente igual que antes.
-    """
-    plantilla = models.ForeignKey(
-        Plantilla,
-        on_delete=models.CASCADE,
-        related_name='secciones',
-    )
-    nombre = models.CharField(
-        max_length=100,
-        help_text='Subtítulo de sección en el reporte. Ej: FÓRMULA ROJA',
-    )
-    orden = models.PositiveSmallIntegerField(
-        default=0,
-        help_text='Orden de aparición de la sección dentro de la plantilla.',
-    )
-
-    class Meta:
-        ordering            = ['orden', 'nombre']
-        unique_together     = ('plantilla', 'nombre')
-        verbose_name        = 'Serie de plantilla'
-        verbose_name_plural = 'Series de plantilla'
-
-    def __str__(self):
-        return f'{self.plantilla.titulo} › {self.nombre}'
-
-
-# =============================================================================
-# PLANTILLA ↔ PROPIEDAD (con LOINC y sección específicos por plantilla)
+# PLANTILLA ↔ PROPIEDAD
+# Tabla intermedia con LOINC, serie/sección y orden propios de cada plantilla.
+#
+# NOTA: La sección/serie es ahora un CharField simple en lugar de una FK a una
+# tabla separada. Esto simplifica la interfaz de administración.
+#
+# CORRECCIÓN: Se añade `orden_seccion` para controlar el orden de aparición
+# de las secciones en el reporte PDF de forma explícita e independiente del
+# orden de las propiedades dentro de cada sección.
 # =============================================================================
 
 class PlantillaPropiedad(models.Model):
     """
     Tabla intermedia entre Plantilla y Propiedad.
-    - loinc_code : LOINC correcto para esta propiedad en el contexto de la plantilla.
-    - seccion    : agrupación visual en el reporte (opcional).
-    - orden      : posición dentro de la sección (o de la plantilla si no hay sección).
+
+    Campos clave:
+    - loinc_code    : LOINC correcto para esta propiedad en el contexto de la plantilla.
+    - seccion       : Nombre de la serie/sección en el reporte (ej. "FÓRMULA ROJA").
+                      Campo de texto libre con sugerencias en el admin.
+    - orden         : Posición de la propiedad DENTRO de su sección.
+    - orden_seccion : Posición de la SECCIÓN en el reporte global.
+                      Permite poner Serie Roja=1, Serie Blanca=2, etc.
+                      Todas las propiedades de la misma sección deben tener
+                      el mismo valor aquí.
     """
-    plantilla  = models.ForeignKey(Plantilla,  on_delete=models.CASCADE,  related_name='plantilla_propiedades')
-    propiedad  = models.ForeignKey(Propiedad,  on_delete=models.CASCADE,  related_name='plantilla_propiedades')
+    plantilla  = models.ForeignKey(Plantilla,  on_delete=models.CASCADE, related_name='plantilla_propiedades')
+    propiedad  = models.ForeignKey(Propiedad,  on_delete=models.CASCADE, related_name='plantilla_propiedades')
     loinc_code = models.ForeignKey(
         LoincCode, on_delete=models.PROTECT, null=True, blank=True,
     )
-    seccion = models.ForeignKey(
-        SeccionPlantilla,
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name='propiedades',
-        help_text='Sección a la que pertenece esta propiedad dentro del reporte.',
+
+    seccion = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        verbose_name='Serie / Sección',
+        help_text='Subtítulo de agrupación en el reporte. Ej: FÓRMULA ROJA, SERIE PLAQUETARIA',
     )
+
     orden = models.PositiveSmallIntegerField(
         default=0,
-        help_text='Orden dentro de la sección (o de la plantilla si no hay sección).',
+        help_text='Orden de la propiedad DENTRO de su sección.',
+    )
+
+    # ── NUEVO CAMPO ──────────────────────────────────────────────────────────
+    orden_seccion = models.PositiveSmallIntegerField(
+        default=0,
+        verbose_name='Orden de sección',
+        help_text=(
+            'Orden de aparición de la SECCIÓN en el reporte PDF. '
+            'Ej: FÓRMULA ROJA=1, FÓRMULA BLANCA=2, SERIE PLAQUETARIA=3. '
+            'Todas las propiedades de la misma sección deben tener el mismo valor.'
+        ),
     )
 
     class Meta:
         unique_together     = ('plantilla', 'propiedad')
-        ordering            = ['seccion__orden', 'orden', 'propiedad__nombre_propiedad']
+        # Ordenar por orden_seccion primero, luego por orden dentro de la sección
+        ordering            = ['orden_seccion', 'orden', 'propiedad__nombre_propiedad']
         verbose_name        = 'Propiedad de plantilla'
         verbose_name_plural = 'Propiedades de plantilla'
 
     def __str__(self):
         loinc   = f' [{self.loinc_code.loinc_num}]' if self.loinc_code else ''
-        seccion = f' ({self.seccion.nombre})'        if self.seccion    else ''
+        seccion = f' ({self.seccion})'               if self.seccion    else ''
         return f'{self.plantilla.titulo} → {self.propiedad.nombre_propiedad}{loinc}{seccion}'
 
 
@@ -314,8 +322,6 @@ class Analisis(models.Model):
     tipo_muestra = models.CharField(max_length=150, null=True, blank=True)
     metodo       = models.CharField(max_length=200, null=True, blank=True)
 
-    # ── Imágenes de resultado almacenadas en Cloudinary ──────────────────────
-    # Igual que logo (Laboratorio) y firma_digital (Usuario).
     imagen_resultado1 = CloudinaryField('image', folder='resultados_imagenes', null=True, blank=True)
     imagen_resultado2 = CloudinaryField('image', folder='resultados_imagenes', null=True, blank=True)
 
@@ -347,8 +353,6 @@ class ResultadoAnalisis(models.Model):
     valor      = models.CharField(max_length=100, blank=True, null=True)
     unidad     = models.CharField(max_length=20,  null=True, blank=True)
 
-    # Campo denormalizado: snapshot del nombre al momento de crear el resultado.
-    # Permite conservar el nombre histórico si la propiedad cambia de nombre.
     nombre_propiedad = models.CharField(
         max_length=100, blank=True, null=True,
         verbose_name="Nombre propiedad",

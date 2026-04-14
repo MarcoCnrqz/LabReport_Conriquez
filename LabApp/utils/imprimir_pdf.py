@@ -135,29 +135,23 @@ def generar_pdf_reporte(detalles):
     y = height - 1.8 * cm
 
     # =========================================================================
-    # TÍTULO: Nombre del laboratorio
+    # TÍTULO: Nombre del laboratorio — texto simple, sin panel ni barra de color
     # =========================================================================
     nombre_lab = detalles.get("laboratorio_nombre", "")
     if nombre_lab:
-        BANNER_LAB_H = 1.0 * cm
-        c.setFillColor(COLOR_PRIMARIO)
-        c.roundRect(MARGEN_IZQ, y - BANNER_LAB_H, ANCHO_UTIL, BANNER_LAB_H,
-                    radius=4, fill=1, stroke=0)
+        _font(c, "Roboto-Bold", 14)
+        c.setFillColor(COLOR_TEXTO_OSC)
+        c.drawCentredString(width / 2, y - 0.65 * cm, nombre_lab.upper())
+        y -= 1.05 * cm
 
-        c.setFillColor(colors.white)
-        _font(c, "Roboto-Bold", 13)
-        c.drawCentredString(width / 2, y - BANNER_LAB_H + 0.28*cm,
-                            nombre_lab.upper())
-        y -= BANNER_LAB_H + 0.5 * cm
-
-        # Línea decorativa doble bajo el banner
-        c.setStrokeColor(COLOR_SECUNDARIO)
-        c.setLineWidth(2.5)
+        # Línea decorativa doble bajo el nombre
+        c.setStrokeColor(COLOR_BORDE)
+        c.setLineWidth(1.5)
         c.line(MARGEN_IZQ, y, MARGEN_DER, y)
-        c.setStrokeColor(COLOR_PRIMARIO)
-        c.setLineWidth(0.8)
-        c.line(MARGEN_IZQ, y - 0.15*cm, MARGEN_DER, y - 0.15*cm)
-        y -= 0.45 * cm
+        c.setStrokeColor(colors.HexColor("#e8eb90"))
+        c.setLineWidth(0.5)
+        c.line(MARGEN_IZQ, y - 0.13 * cm, MARGEN_DER, y - 0.13 * cm)
+        y -= 0.38 * cm
 
     # =========================================================================
     # HEADER: Logo (izquierda) + datos paciente (centro) + fechas (derecha)
@@ -302,7 +296,8 @@ def generar_pdf_reporte(detalles):
     X3 = X2 + COL_REF
     X4 = X3 + COL_UNIDAD
 
-    FILA_H   = 0.65 * cm
+    # FILA_H ampliada a 0.82cm para dar cabida al código LOINC en segunda línea
+    FILA_H   = 0.82 * cm
     HEADER_H = 0.75 * cm
 
     def dibujar_encabezados_tabla(yy):
@@ -407,17 +402,26 @@ def generar_pdf_reporte(detalles):
             color_val = _color_resultado(res.get('valor', ''), valor_min, valor_max)
 
             PAD  = 0.18 * cm
-            Y_TX = y - FILA_H + 0.18 * cm
+            # Línea superior: nombre de la propiedad (con espacio para LOINC abajo)
+            Y_TX_NAME  = y - 0.28 * cm          # primer renglón
+            Y_TX_LOWER = y - FILA_H + 0.13 * cm  # segundo renglón (LOINC / valor)
 
             # — PRUEBA —
             _font(c, "Roboto", 7.5)
             c.setFillColor(colors.black)
-            c.drawString(X0 + PAD, Y_TX, str(res.get('nombre_propiedad', '')))
+            c.drawString(X0 + PAD, Y_TX_NAME, str(res.get('nombre_propiedad', '')))
+
+            # — LOINC (código gris, pequeño, debajo del nombre de prueba) —
+            loinc_num = res.get('loinc_num', '') or ''
+            if loinc_num:
+                _font(c, "Roboto-Italic", 6)
+                c.setFillColor(colors.HexColor("#999999"))
+                c.drawString(X0 + PAD, Y_TX_LOWER, loinc_num)
 
             # — RESULTADO —
             c.setFillColor(color_val)
             _font(c, "Roboto-Bold" if color_val != colors.black else "Roboto", 7.5)
-            c.drawString(X1 + PAD, Y_TX, str(res.get('valor', '')))
+            c.drawString(X1 + PAD, Y_TX_NAME, str(res.get('valor', '')))
 
             # — REFERENCIA —
             _font(c, "Roboto", 7.5)
@@ -430,12 +434,12 @@ def generar_pdf_reporte(detalles):
                 rango_txt = f"<= {valor_max}"
             else:
                 rango_txt = "-"
-            c.drawString(X2 + PAD, Y_TX, rango_txt)
+            c.drawString(X2 + PAD, Y_TX_NAME, rango_txt)
 
             # — UNIDAD — (None → N/A)
             unidad_str = _sanitizar_unidad(res.get('unidad'))
             c.setFillColor(COLOR_TEXTO_MED)
-            c.drawString(X3 + PAD, Y_TX, unidad_str)
+            c.drawString(X3 + PAD, Y_TX_NAME, unidad_str)
 
             # — OPCIONES CUALITATIVAS —
             opciones_str = res.get('opciones_cualitativas', '') or ''
@@ -447,7 +451,7 @@ def generar_pdf_reporte(detalles):
 
             _font(c, "Roboto-Italic", 7)
             c.setFillColor(colors.HexColor("#666666"))
-            c.drawString(X4 + PAD, Y_TX, opciones_display)
+            c.drawString(X4 + PAD, Y_TX_NAME, opciones_display)
 
             # Línea divisoria entre filas
             c.setStrokeColor(colors.HexColor("#dce07a"))

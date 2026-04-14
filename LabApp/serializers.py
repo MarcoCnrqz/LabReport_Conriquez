@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from .models import (
     Paciente, Laboratorio, Analisis, ResultadoAnalisis,
-    Plantilla, PlantillaPropiedad, SeccionPlantilla,
+    Plantilla, PlantillaPropiedad,
     Propiedad, IntervaloReferencia, LoincCode, Usuario,
 )
 import base64
@@ -45,11 +45,9 @@ class IntervaloNestedSerializer(serializers.ModelSerializer):
     """
     Serializer ligero para intervalos ANIDADOS dentro de PropiedadSerializer.
     Excluye 'propiedad' porque el padre la asigna en .create()/.update().
-    Sin este serializer separado, la validacion exige propiedad=<id> aunque
-    el cliente nunca lo manda, generando el error 400.
     """
     class Meta:
-        model  = IntervaloReferencia
+        model   = IntervaloReferencia
         exclude = ('propiedad',)
         read_only_fields = ('sincronizado', 'fecha_modificacion')
 
@@ -128,20 +126,16 @@ class PropiedadSerializer(serializers.ModelSerializer):
         return instance
 
 
-class SeccionPlantillaSerializer(serializers.ModelSerializer):
-    class Meta:
-        model  = SeccionPlantilla
-        fields = ['id', 'nombre', 'orden']
-
-
 class PlantillaSerializer(serializers.ModelSerializer):
-    # ✅ FIX Bug 1: propiedades ahora se lee desde PlantillaPropiedad (tabla
-    # intermedia M2M) para exponer loinc_num y seccion_nombre correctos por
-    # plantilla, en lugar del loinc de la Propiedad general.
-    propiedades = serializers.SerializerMethodField()
-    secciones   = SeccionPlantillaSerializer(many=True, read_only=True)
+    """
+    Serializer de Plantilla.
 
-    # Expone el LOINC del panel como string para lectura
+    La sección/serie es un CharField en PlantillaPropiedad.
+    Se añade soporte para `propiedades_ordenes_seccion` para controlar
+    el orden de las secciones en el reporte PDF.
+    """
+    propiedades = serializers.SerializerMethodField()
+
     loinc_panel_num = serializers.CharField(
         source='loinc_code.loinc_num',
         read_only=True,
@@ -157,20 +151,12 @@ class PlantillaSerializer(serializers.ModelSerializer):
         help_text="IDs remotos de Propiedad para asignar al M2M.",
     )
 
-    secciones_input = serializers.ListField(
-        child=serializers.DictField(),
-        write_only=True,
-        required=False,
-        default=list,
-        help_text="Lista de secciones [{nombre: str, orden: int}] para crear junto con la plantilla.",
-    )
-
     propiedades_loinc = serializers.DictField(
         child=serializers.CharField(allow_blank=True),
         write_only=True,
         required=False,
         default=dict,
-        help_text="Mapa {remote_propiedad_id: loinc_num} que se guarda en PlantillaPropiedad.",
+        help_text="Mapa {remote_propiedad_id: loinc_num} para PlantillaPropiedad.loinc_code.",
     )
 
     propiedades_secciones = serializers.DictField(
@@ -178,7 +164,31 @@ class PlantillaSerializer(serializers.ModelSerializer):
         write_only=True,
         required=False,
         default=dict,
-        help_text="Mapa {remote_propiedad_id: seccion_nombre} que se guarda en PlantillaPropiedad.",
+        help_text=(
+            "Mapa {remote_propiedad_id: seccion_nombre} que se guarda directamente "
+            "en PlantillaPropiedad.seccion (string, sin tabla auxiliar)."
+        ),
+    )
+
+    propiedades_ordenes = serializers.DictField(
+        child=serializers.IntegerField(),
+        write_only=True,
+        required=False,
+        default=dict,
+        help_text="Mapa {remote_propiedad_id: orden} para PlantillaPropiedad.orden.",
+    )
+
+    # ── NUEVO ────────────────────────────────────────────────────────────────
+    propiedades_ordenes_seccion = serializers.DictField(
+        child=serializers.IntegerField(),
+        write_only=True,
+        required=False,
+        default=dict,
+        help_text=(
+            "Mapa {remote_propiedad_id: orden_seccion} para controlar el orden "
+            "de aparición de las secciones en el PDF. "
+            "Ej: todas las propiedades de FÓRMULA ROJA → 1, de FÓRMULA BLANCA → 2."
+        ),
     )
 
     class Meta:
@@ -186,23 +196,16 @@ class PlantillaSerializer(serializers.ModelSerializer):
         fields = '__all__'
         read_only_fields = ('sincronizado', 'fecha_modificacion')
 
-    # ✅ FIX Bug 1: Lee loinc_num y seccion_nombre desde PlantillaPropiedad,
-    # no desde Propiedad directamente. Así la app local recibe los valores
-    # específicos de la plantilla, no el LOINC genérico de la propiedad.
     def get_propiedades(self, obj):
         """
-        Devuelve las propiedades enriquecidas con loinc_num_display y
-        seccion_nombre leídos desde PlantillaPropiedad (tabla intermedia).
+        Devuelve las propiedades enriquecidas con loinc_num_display,
+        seccion_nombre y orden_seccion leídos desde PlantillaPropiedad.
 
-        Prioridad de loinc_num:
-          1. pp.loinc_code  (asignado específicamente en esta plantilla)
-          2. prop.loinc_code (loinc genérico de la propiedad)
-
-        Campos extra expuestos (usados por _guardar_plantillas_nube en local):
-          - loinc_num_display : str  ("2345-7" o "")
-          - seccion_nombre    : str  ("FÓRMULA ROJA" o "")
-          - seccion_orden     : int
+        Campos extra:
+          - loinc_num_display : str
+          - seccion_nombre    : str
           - orden             : int  (orden dentro de la sección)
+          - orden_seccion     : int  (orden de la sección en el reporte)
         """
         result = []
         pp_qs = (
@@ -212,9 +215,9 @@ class PlantillaSerializer(serializers.ModelSerializer):
                 'propiedad',
                 'propiedad__loinc_code',
                 'loinc_code',
-                'seccion',
             )
-            .order_by('seccion__orden', 'orden', 'propiedad__nombre_propiedad')
+            # CORRECCIÓN: ordenar por orden_seccion primero
+            .order_by('orden_seccion', 'orden', 'propiedad__nombre_propiedad')
         )
 
         for pp in pp_qs:
@@ -229,11 +232,10 @@ class PlantillaSerializer(serializers.ModelSerializer):
                 loinc_num = ""
 
             data = PropiedadSerializer(prop).data
-            # Sobreescribir loinc_num_display con el valor de la tabla intermedia
             data['loinc_num_display'] = loinc_num
-            data['seccion_nombre']    = pp.seccion.nombre if pp.seccion else ""
-            data['seccion_orden']     = pp.seccion.orden  if pp.seccion else 9999
+            data['seccion_nombre']    = pp.seccion or ""
             data['orden']             = pp.orden or 0
+            data['orden_seccion']     = pp.orden_seccion or 0   # ← NUEVO
             result.append(data)
 
         return result
@@ -266,69 +268,55 @@ class PlantillaSerializer(serializers.ModelSerializer):
                 pass
 
     def _aplicar_seccion_por_propiedad(self, plantilla, propiedades_secciones):
-        """Asigna seccion_id en cada registro PlantillaPropiedad a partir del nombre de sección."""
+        """
+        Asigna la sección directamente como string en PlantillaPropiedad.seccion.
+        """
         for prop_id_str, seccion_nombre in propiedades_secciones.items():
-            if not seccion_nombre or not seccion_nombre.strip():
-                continue
             try:
                 prop_id = int(prop_id_str)
                 pp = PlantillaPropiedad.objects.filter(
                     plantilla=plantilla, propiedad_id=prop_id
                 ).first()
                 if pp:
-                    try:
-                        sec = SeccionPlantilla.objects.get(
-                            plantilla=plantilla,
-                            nombre=seccion_nombre.strip()
-                        )
-                        pp.seccion = sec
-                        pp.save()
-                    except SeccionPlantilla.DoesNotExist:
-                        print(
-                            f"  [PlantillaSerializer] Sección '{seccion_nombre}' "
-                            f"no encontrada en plantilla {plantilla.id} para prop {prop_id}."
-                        )
+                    pp.seccion = seccion_nombre.strip() if seccion_nombre else None
+                    pp.save()
             except (ValueError, TypeError):
                 pass
 
-    def _sincronizar_secciones(self, plantilla, secciones_data):
-        """
-        Crea o actualiza SeccionPlantilla para la plantilla dada.
-        Elimina las secciones que ya no vienen desde la nube,
-        evitando acumulación de secciones fantasma.
-        """
-        nombres_recibidos = set()
-        for sec in secciones_data:
-            nombre = (sec.get('nombre') or '').strip()
-            if not nombre:
-                continue
-            orden = sec.get('orden', 0) or 0
-            obj, created = SeccionPlantilla.objects.get_or_create(
-                plantilla=plantilla, nombre=nombre,
-                defaults={'orden': orden}
-            )
-            if not created and obj.orden != orden:
-                obj.orden = orden
-                obj.save()
-            nombres_recibidos.add(nombre)
+    def _aplicar_ordenes_por_propiedad(self, plantilla, propiedades_ordenes):
+        """Asigna el orden dentro de la sección en PlantillaPropiedad."""
+        for prop_id_str, orden in propiedades_ordenes.items():
+            try:
+                prop_id = int(prop_id_str)
+                pp = PlantillaPropiedad.objects.filter(
+                    plantilla=plantilla, propiedad_id=prop_id
+                ).first()
+                if pp:
+                    pp.orden = orden
+                    pp.save()
+            except (ValueError, TypeError):
+                pass
 
-        # Eliminar secciones que ya no existen en la fuente
-        eliminadas = (
-            SeccionPlantilla.objects
-            .filter(plantilla=plantilla)
-            .exclude(nombre__in=nombres_recibidos)
-            .delete()
-        )
-        if eliminadas[0]:
-            print(f"  [PlantillaSerializer] {eliminadas[0]} sección(es) obsoleta(s) eliminada(s).")
-
-        return nombres_recibidos
+    def _aplicar_ordenes_seccion_por_propiedad(self, plantilla, propiedades_ordenes_seccion):
+        """Asigna el orden_seccion en PlantillaPropiedad."""
+        for prop_id_str, orden_seccion in propiedades_ordenes_seccion.items():
+            try:
+                prop_id = int(prop_id_str)
+                pp = PlantillaPropiedad.objects.filter(
+                    plantilla=plantilla, propiedad_id=prop_id
+                ).first()
+                if pp:
+                    pp.orden_seccion = orden_seccion
+                    pp.save()
+            except (ValueError, TypeError):
+                pass
 
     def create(self, validated_data):
-        propiedades_ids       = validated_data.pop('propiedades_ids', [])
-        secciones_data        = validated_data.pop('secciones_input', [])
-        propiedades_loinc     = validated_data.pop('propiedades_loinc', {})
-        propiedades_secciones = validated_data.pop('propiedades_secciones', {})
+        propiedades_ids             = validated_data.pop('propiedades_ids', [])
+        propiedades_loinc           = validated_data.pop('propiedades_loinc', {})
+        propiedades_secciones       = validated_data.pop('propiedades_secciones', {})
+        propiedades_ordenes         = validated_data.pop('propiedades_ordenes', {})
+        propiedades_ordenes_seccion = validated_data.pop('propiedades_ordenes_seccion', {})
 
         plantilla = Plantilla.objects.create(**validated_data)
 
@@ -341,45 +329,66 @@ class PlantillaSerializer(serializers.ModelSerializer):
             if no_encontrados:
                 print(f"  [PlantillaSerializer] IDs no encontrados: {no_encontrados}")
 
-        if secciones_data:
-            self._sincronizar_secciones(plantilla, secciones_data)
-            print(f"  [PlantillaSerializer] '{plantilla.titulo}' → {len(secciones_data)} secciones procesadas.")
-
         if propiedades_loinc:
             self._aplicar_loinc_por_propiedad(plantilla, propiedades_loinc)
-
         if propiedades_secciones:
             self._aplicar_seccion_por_propiedad(plantilla, propiedades_secciones)
+        if propiedades_ordenes:
+            self._aplicar_ordenes_por_propiedad(plantilla, propiedades_ordenes)
+        if propiedades_ordenes_seccion:
+            self._aplicar_ordenes_seccion_por_propiedad(plantilla, propiedades_ordenes_seccion)
 
         return plantilla
 
     def update(self, instance, validated_data):
-        propiedades_ids       = validated_data.pop('propiedades_ids', None)
-        secciones_data        = validated_data.pop('secciones_input', None)
-        propiedades_loinc     = validated_data.pop('propiedades_loinc', None)
-        propiedades_secciones = validated_data.pop('propiedades_secciones', None)
+        propiedades_ids             = validated_data.pop('propiedades_ids', None)
+        propiedades_loinc           = validated_data.pop('propiedades_loinc', None)
+        propiedades_secciones       = validated_data.pop('propiedades_secciones', None)
+        propiedades_ordenes         = validated_data.pop('propiedades_ordenes', None)
+        propiedades_ordenes_seccion = validated_data.pop('propiedades_ordenes_seccion', None)
 
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()
 
         if propiedades_ids is not None:
-            props = Propiedad.objects.filter(id__in=propiedades_ids)
-            instance.propiedades.set(props)
-            print(f"  [PlantillaSerializer] '{instance.titulo}' → M2M actualizado a {props.count()} propiedades.")
-            encontrados    = set(props.values_list('id', flat=True))
+            ids_nuevos     = set(propiedades_ids)
+            ids_existentes = set(
+                PlantillaPropiedad.objects
+                .filter(plantilla=instance)
+                .values_list('propiedad_id', flat=True)
+            )
+
+            # CORRECCIÓN: agregar solo los nuevos, preservando seccion/orden de los existentes
+            ids_a_agregar = ids_nuevos - ids_existentes
+            for pid in ids_a_agregar:
+                PlantillaPropiedad.objects.get_or_create(
+                    plantilla=instance,
+                    propiedad_id=pid,
+                )
+
+            # Quitar los que ya no están en la lista
+            ids_a_quitar = ids_existentes - ids_nuevos
+            if ids_a_quitar:
+                PlantillaPropiedad.objects.filter(
+                    plantilla=instance,
+                    propiedad_id__in=ids_a_quitar,
+                ).delete()
+
+            encontrados    = set(Propiedad.objects.filter(id__in=ids_nuevos).values_list('id', flat=True))
             no_encontrados = [pid for pid in propiedades_ids if pid not in encontrados]
             if no_encontrados:
                 print(f"  [PlantillaSerializer] IDs no encontrados: {no_encontrados}")
-
-        if secciones_data is not None:
-            self._sincronizar_secciones(instance, secciones_data)
+            print(f"  [PlantillaSerializer] '{instance.titulo}' → M2M actualizado (sin borrar secciones).")
 
         if propiedades_loinc is not None:
             self._aplicar_loinc_por_propiedad(instance, propiedades_loinc)
-
         if propiedades_secciones is not None:
             self._aplicar_seccion_por_propiedad(instance, propiedades_secciones)
+        if propiedades_ordenes is not None:
+            self._aplicar_ordenes_por_propiedad(instance, propiedades_ordenes)
+        if propiedades_ordenes_seccion is not None:
+            self._aplicar_ordenes_seccion_por_propiedad(instance, propiedades_ordenes_seccion)
 
         return instance
 
@@ -410,24 +419,9 @@ class AnalisisSerializer(serializers.ModelSerializer):
       no necesariamente coinciden con los IDs de la BD en la nube.
 
     LECTURA (GET):
-      - Devuelve resultados con sus IDs reales de la nube para sincronización.
-      - Incluye 'plantilla_titulo' para que la app local muestre el nombre
-        sin AttributeError cuando plantilla es None.
+      - resultados anidados con nombre_propiedad, valor, unidad
     """
-    resultados        = ResultadoSerializer(many=True, required=False)
-    imagen_resultado1 = Base64ImageField(
-        max_length=None, use_url=True, required=False, allow_null=True
-    )
-    imagen_resultado2 = Base64ImageField(
-        max_length=None, use_url=True, required=False, allow_null=True
-    )
-
-    plantilla_titulo = serializers.CharField(
-        source='plantilla.titulo',
-        read_only=True,
-        default='',
-        allow_null=True,
-    )
+    resultados = ResultadoSerializer(many=True, read_only=True)
 
     nombres_propiedades_extra = serializers.ListField(
         child=serializers.CharField(),
@@ -435,11 +429,20 @@ class AnalisisSerializer(serializers.ModelSerializer):
         required=False,
         default=list,
     )
+
     nombres_propiedades_excluidas = serializers.ListField(
         child=serializers.CharField(),
         write_only=True,
         required=False,
         default=list,
+    )
+
+    resultados_input = serializers.ListField(
+        child=serializers.DictField(),
+        write_only=True,
+        required=False,
+        default=list,
+        source='resultados',
     )
 
     class Meta:
@@ -451,27 +454,19 @@ class AnalisisSerializer(serializers.ModelSerializer):
         nombres_extra     = validated_data.pop('nombres_propiedades_extra', [])
         nombres_excluidas = validated_data.pop('nombres_propiedades_excluidas', [])
 
+        validated_data['_desde_api'] = True
         analisis = Analisis(**validated_data)
         analisis._desde_api = True
         analisis.save()
 
         if nombres_extra:
-            props_extra = Propiedad.objects.filter(nombre_propiedad__in=nombres_extra)
-            analisis.propiedades_extra.set(props_extra)
-            encontrados    = list(props_extra.values_list('nombre_propiedad', flat=True))
-            no_encontrados = [n for n in nombres_extra if n not in encontrados]
-            print(f"  [Serializer] propiedades_extra asignadas : {encontrados}")
-            if no_encontrados:
-                print(f"  [Serializer] propiedades_extra NO encontradas: {no_encontrados}")
-
+            analisis.propiedades_extra.set(
+                Propiedad.objects.filter(nombre_propiedad__in=nombres_extra)
+            )
         if nombres_excluidas:
-            props_excluidas = Propiedad.objects.filter(nombre_propiedad__in=nombres_excluidas)
-            analisis.propiedades_excluidas.set(props_excluidas)
-            encontrados    = list(props_excluidas.values_list('nombre_propiedad', flat=True))
-            no_encontrados = [n for n in nombres_excluidas if n not in encontrados]
-            print(f"  [Serializer] propiedades_excluidas asignadas : {encontrados}")
-            if no_encontrados:
-                print(f"  [Serializer] propiedades_excluidas NO encontradas: {no_encontrados}")
+            analisis.propiedades_excluidas.set(
+                Propiedad.objects.filter(nombre_propiedad__in=nombres_excluidas)
+            )
 
         for res_data in resultados_data:
             nombre_prop = (res_data.get('nombre_propiedad') or '').strip()
@@ -686,3 +681,13 @@ class PacienteBusquedaNubeSerializer(serializers.ModelSerializer):
         from .models import Analisis as AnalisisModel
         analisis_qs = AnalisisModel.objects.filter(paciente=obj).order_by('-fecha_analisis')
         return AnalisisSerializer(analisis_qs, many=True, context=self.context).data
+
+
+# ======================================================
+# PLANTILLA-PROPIEDAD (modelo intermedio)
+# ======================================================
+
+class PlantillaPropiedadSerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = PlantillaPropiedad
+        fields = '__all__'
