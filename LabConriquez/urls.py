@@ -51,6 +51,7 @@ urlpatterns = [
     # --- API REST ---
     path('api/', include(router.urls)),
     path('api/login/', views.login_api, name='api_login'),
+    path('api/token/refresh/', views.refresh_token_api, name='api_token_refresh'),
     path('api/mi_laboratorio/', views.mi_laboratorio_api, name='mi_laboratorio_api'),
 
     # --- Funciones extendidas ---

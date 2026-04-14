@@ -98,7 +98,7 @@ class SugerenciasDropdownWidget(forms.TextInput):
 
     def render(self, name, value, attrs=None, renderer=None):
         attrs = attrs or {}
-        attrs['autocomplete'] = 'off'
+        attrs['autocomplete'] = 'new-password'
         attrs['placeholder']  = self.placeholder
         attrs['style']        = f'width:{self.input_width};vertical-align:middle;'
 
@@ -197,13 +197,19 @@ class SugerenciasDropdownWidget(forms.TextInput):
     }}
   }};
 
-  ['scroll','resize'].forEach(function(ev) {{
-    window.addEventListener(ev, function() {{
-      document.querySelectorAll('.sdw-menu').forEach(function(m) {{
-        m.style.display = 'none';
-      }});
-    }}, true);
+  window.addEventListener('resize', function() {{
+    document.querySelectorAll('.sdw-menu').forEach(function(m) {{
+      m.style.display = 'none';
+    }});
   }});
+
+  window.addEventListener('scroll', function(e) {{
+    // No cerrar si el scroll ocurre DENTRO de un menú de sugerencias
+    if (e.target && e.target.classList && e.target.classList.contains('sdw-menu')) return;
+    document.querySelectorAll('.sdw-menu').forEach(function(m) {{
+      m.style.display = 'none';
+    }});
+  }}, true);
 
   window.sdwElegir = function(menuId, item) {{
     var menu = document.getElementById(menuId);
@@ -268,6 +274,11 @@ class PropiedadForm(forms.ModelForm):
     class Meta:
         model  = Propiedad
         fields = '__all__'
+        widgets = {
+            'nombre_propiedad': forms.TextInput(attrs={
+                'style': 'text-transform:uppercase;',
+            }),
+        }
 
     class Media:
         js = ('admin/js/intervalo_toggle.js',)
@@ -541,8 +552,21 @@ class PlantillaPropiedadInline(admin.TabularInline):
 # 5. REGISTRO DE MODELOS
 # =============================================================================
 
+class UsuarioAdminForm(forms.ModelForm):
+    ROL_CHOICES_LIMITADOS = [
+        ('NORMAL',  'Normal'),
+        ('TECNICO', 'Técnico'),
+    ]
+    rol = forms.ChoiceField(choices=ROL_CHOICES_LIMITADOS)
+
+    class Meta:
+        model  = Usuario
+        fields = '__all__'
+
+
 @admin.register(Usuario)
 class UsuarioAdmin(admin.ModelAdmin):
+    form              = UsuarioAdminForm
     list_display      = ('id', 'nombre', 'correo_electronico', 'rol', 'puesto', 'cedula_profesional', 'is_active')
     list_filter       = ('rol', 'is_active')
     search_fields     = ('nombre', 'correo_electronico', 'cedula_profesional')
@@ -588,6 +612,11 @@ class PropiedadAdmin(admin.ModelAdmin):
 
     def get_readonly_fields(self, request, obj=None):
         return ('tipo',) if obj else ()
+
+    def save_model(self, request, obj, form, change):
+        if obj.nombre_propiedad:
+            obj.nombre_propiedad = obj.nombre_propiedad.upper()
+        super().save_model(request, obj, form, change)
 
     def get_plantillas(self, obj):
         nombres = obj.plantillas.values_list('titulo', flat=True)

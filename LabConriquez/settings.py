@@ -184,6 +184,15 @@ STORAGES = {
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+# ======================================================================
+# JWT — CONFIGURACIÓN
+# ======================================================================
+
+JWT_SECRET_KEY    = os.environ.get('JWT_SECRET_KEY', SECRET_KEY)
+JWT_ALGORITHM     = 'HS256'
+JWT_ACCESS_EXPIRY  = 60 * 8          # 8 horas en minutos
+JWT_REFRESH_EXPIRY = 60 * 24 * 30    # 30 días en minutos
+
 
 # ======================================================================
 # CONFIGURACION DE DISEÑO DE JAZZMIN

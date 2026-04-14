@@ -1,4 +1,7 @@
 import requests as http_requests
+import jwt
+import datetime
+from functools import wraps
 
 from rest_framework import viewsets, status
 from rest_framework.decorators import api_view, action
@@ -7,6 +10,7 @@ from django.shortcuts import render, get_object_or_404
 from django.http import HttpResponse, FileResponse, JsonResponse
 from django.views.decorators.http import require_GET
 from django.db.models import Q
+from django.conf import settings
 
 from .models import (
     Paciente, Laboratorio, Analisis, ResultadoAnalisis,
@@ -23,6 +27,88 @@ from .serializers import (
     PlantillaPropiedadSerializer,
 )
 from .utils.imprimir_pdf import generar_pdf_reporte
+
+
+# ======================================================
+# JWT — HELPERS
+# ======================================================
+
+def _jwt_crear_token(usuario_id: int, tipo: str) -> str:
+    """
+    Crea un token JWT.
+    tipo: 'access'  -> expira en JWT_ACCESS_EXPIRY minutos
+          'refresh' -> expira en JWT_REFRESH_EXPIRY minutos
+    """
+    if tipo == 'access':
+        minutos = getattr(settings, 'JWT_ACCESS_EXPIRY',  60 * 8)
+    else:
+        minutos = getattr(settings, 'JWT_REFRESH_EXPIRY', 60 * 24 * 30)
+
+    payload = {
+        'user_id': usuario_id,
+        'tipo':    tipo,
+        'exp':     datetime.datetime.utcnow() + datetime.timedelta(minutes=minutos),
+        'iat':     datetime.datetime.utcnow(),
+    }
+    return jwt.encode(
+        payload,
+        getattr(settings, 'JWT_SECRET_KEY', settings.SECRET_KEY),
+        algorithm=getattr(settings, 'JWT_ALGORITHM', 'HS256'),
+    )
+
+
+def _jwt_verificar_token(token: str, tipo: str = 'access'):
+    """
+    Verifica y decodifica un token JWT.
+    Devuelve el payload si es válido, o lanza jwt.PyJWTError si no lo es.
+    """
+    payload = jwt.decode(
+        token,
+        getattr(settings, 'JWT_SECRET_KEY', settings.SECRET_KEY),
+        algorithms=[getattr(settings, 'JWT_ALGORITHM', 'HS256')],
+    )
+    if payload.get('tipo') != tipo:
+        raise jwt.InvalidTokenError('Tipo de token incorrecto')
+    return payload
+
+
+def jwt_requerido(view_func):
+    """
+    Decorador para vistas basadas en funcion (api_view).
+    Valida el header: Authorization: Bearer <access_token>
+    Si es valido, inyecta request.usuario_jwt_id con el id del usuario.
+
+    Uso:
+        @api_view(['GET'])
+        @jwt_requerido
+        def mi_vista(request):
+            usuario_id = request.usuario_jwt_id
+    """
+    @wraps(view_func)
+    def wrapper(request, *args, **kwargs):
+        auth_header = request.headers.get('Authorization', '')
+        if not auth_header.startswith('Bearer '):
+            return Response(
+                {'error': 'Token no proporcionado. Usa: Authorization: Bearer <token>'},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+        token = auth_header.split(' ', 1)[1].strip()
+        try:
+            payload = _jwt_verificar_token(token, tipo='access')
+        except jwt.ExpiredSignatureError:
+            return Response(
+                {'error': 'Token expirado. Solicita uno nuevo con /api/token/refresh/'},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+        except jwt.PyJWTError as e:
+            return Response(
+                {'error': f'Token invalido: {str(e)}'},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+        request.usuario_jwt_id = payload['user_id']
+        return view_func(request, *args, **kwargs)
+    return wrapper
+
 
 
 # ======================================================
@@ -199,8 +285,45 @@ def login_api(request):
     if not usuario.check_password(password):
         return Response({"error": "Credenciales incorrectas"}, status=status.HTTP_401_UNAUTHORIZED)
 
-    data = UsuarioLoginResponseSerializer(usuario).data
-    return Response(data, status=status.HTTP_200_OK)
+    data         = UsuarioLoginResponseSerializer(usuario).data
+    access_token  = _jwt_crear_token(usuario.id, 'access')
+    refresh_token = _jwt_crear_token(usuario.id, 'refresh')
+
+    return Response({
+        **data,
+        'access_token':  access_token,
+        'refresh_token': refresh_token,
+    }, status=status.HTTP_200_OK)
+
+
+# ======================================================
+# REFRESH TOKEN
+# ======================================================
+
+@api_view(['POST'])
+def refresh_token_api(request):
+    """
+    Genera un nuevo access_token a partir de un refresh_token valido.
+
+    Body JSON:
+        { "refresh_token": "<token>" }
+
+    Respuesta:
+        { "access_token": "<nuevo_token>" }
+    """
+    refresh_token = request.data.get('refresh_token', '').strip()
+    if not refresh_token:
+        return Response({'error': 'Se requiere refresh_token'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        payload = _jwt_verificar_token(refresh_token, tipo='refresh')
+    except jwt.ExpiredSignatureError:
+        return Response({'error': 'Refresh token expirado. Inicia sesion de nuevo.'}, status=status.HTTP_401_UNAUTHORIZED)
+    except jwt.PyJWTError as e:
+        return Response({'error': f'Refresh token invalido: {str(e)}'}, status=status.HTTP_401_UNAUTHORIZED)
+
+    nuevo_access = _jwt_crear_token(payload['user_id'], 'access')
+    return Response({'access_token': nuevo_access}, status=status.HTTP_200_OK)
 
 
 # ======================================================
@@ -208,11 +331,10 @@ def login_api(request):
 # ======================================================
 
 @api_view(['GET'])
+@jwt_requerido
 def mi_laboratorio_api(request):
-    usuario_id = request.query_params.get('usuario_id')
-
-    if not usuario_id:
-        return Response({"error": "Se requiere el parámetro usuario_id"}, status=status.HTTP_400_BAD_REQUEST)
+    # El decorador @jwt_requerido inyecta request.usuario_jwt_id
+    usuario_id = request.usuario_jwt_id
 
     try:
         usuario = Usuario.objects.get(id=usuario_id, is_active=True)
