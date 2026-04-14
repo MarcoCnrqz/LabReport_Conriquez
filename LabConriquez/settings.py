@@ -82,6 +82,16 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
+# ======================================================================
+# REST FRAMEWORK — Sin CSRF para la API
+# ======================================================================
+# Las rutas /api/ usan JWT, no sesiones de Django.
+# SessionAuthentication exige CSRF; al quitarla desaparece el error 403.
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [],   # Sin sesiones → sin CSRF
+    'DEFAULT_PERMISSION_CLASSES':     [],   # Sin permisos globales (cada vista los controla)
+}
+
 ROOT_URLCONF = 'LabConriquez.urls'
 
 # ======================================================================
@@ -183,15 +193,6 @@ STORAGES = {
 # ======================================================================
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
-
-# ======================================================================
-# JWT — CONFIGURACIÓN
-# ======================================================================
-
-JWT_SECRET_KEY    = os.environ.get('JWT_SECRET_KEY', SECRET_KEY)
-JWT_ALGORITHM     = 'HS256'
-JWT_ACCESS_EXPIRY  = 60 * 8          # 8 horas en minutos
-JWT_REFRESH_EXPIRY = 60 * 24 * 30    # 30 días en minutos
 
 
 # ======================================================================
