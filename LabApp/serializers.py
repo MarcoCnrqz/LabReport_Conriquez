@@ -207,8 +207,7 @@ class PlantillaSerializer(serializers.ModelSerializer):
           - orden             : int  (orden dentro de la sección)
           - orden_seccion     : int  (orden de la sección en el reporte)
         """
-        result = []
-        pp_qs = (
+        base_qs = (
             PlantillaPropiedad.objects
             .filter(plantilla=obj)
             .select_related(
@@ -216,11 +215,25 @@ class PlantillaSerializer(serializers.ModelSerializer):
                 'propiedad__loinc_code',
                 'loinc_code',
             )
-            # CORRECCIÓN: ordenar por orden_seccion primero
-            .order_by('orden_seccion', 'orden', 'propiedad__nombre_propiedad')
         )
 
-        for pp in pp_qs:
+        # Guard: si la migración de orden_seccion aún no se ejecutó en el servidor,
+        # el ORDER BY falla con OperationalError/ProgrammingError → fallback sin ese campo.
+        try:
+            pp_list = list(
+                base_qs.order_by('orden_seccion', 'orden', 'propiedad__nombre_propiedad')
+            )
+        except Exception:
+            print(
+                "[PlantillaSerializer] ADVERTENCIA: order_by 'orden_seccion' falló. "
+                "¿Migración pendiente? Usando orden de fallback."
+            )
+            pp_list = list(
+                base_qs.order_by('orden', 'propiedad__nombre_propiedad')
+            )
+
+        result = []
+        for pp in pp_list:
             prop = pp.propiedad
 
             # Prioridad: LOINC de la tabla intermedia > LOINC de la propiedad
@@ -235,7 +248,7 @@ class PlantillaSerializer(serializers.ModelSerializer):
             data['loinc_num_display'] = loinc_num
             data['seccion_nombre']    = pp.seccion or ""
             data['orden']             = pp.orden or 0
-            data['orden_seccion']     = pp.orden_seccion or 0   # ← NUEVO
+            data['orden_seccion']     = getattr(pp, 'orden_seccion', None) or 0
             result.append(data)
 
         return result
@@ -248,68 +261,131 @@ class PlantillaSerializer(serializers.ModelSerializer):
         return value
 
     def _aplicar_loinc_por_propiedad(self, plantilla, propiedades_loinc):
-        """Asigna loinc_code_id en cada registro PlantillaPropiedad."""
+        """Asigna loinc_code_id en cada registro PlantillaPropiedad (bulk_update)."""
+        if not propiedades_loinc:
+            return
+        prop_ids = []
+        for k in propiedades_loinc:
+            try:
+                prop_ids.append(int(k))
+            except (ValueError, TypeError):
+                pass
+        pp_map = {
+            pp.propiedad_id: pp
+            for pp in PlantillaPropiedad.objects.filter(
+                plantilla=plantilla, propiedad_id__in=prop_ids
+            )
+        }
+        # Pre-cargar todos los LoincCode necesarios de una sola query
+        loinc_nums = [v.strip() for v in propiedades_loinc.values() if v and v.strip()]
+        loinc_map  = {lc.loinc_num: lc for lc in LoincCode.objects.filter(loinc_num__in=loinc_nums)}
+
+        to_update = []
         for prop_id_str, loinc_num in propiedades_loinc.items():
             if not loinc_num or not loinc_num.strip():
                 continue
             try:
                 prop_id = int(prop_id_str)
-                pp = PlantillaPropiedad.objects.filter(
-                    plantilla=plantilla, propiedad_id=prop_id
-                ).first()
-                if pp:
-                    try:
-                        lc = LoincCode.objects.get(loinc_num=loinc_num.strip())
-                        pp.loinc_code = lc
-                        pp.save()
-                    except LoincCode.DoesNotExist:
-                        print(f"  [PlantillaSerializer] LOINC '{loinc_num}' no encontrado para prop {prop_id}.")
+                pp = pp_map.get(prop_id)
+                lc = loinc_map.get(loinc_num.strip())
+                if pp and lc:
+                    pp.loinc_code = lc
+                    to_update.append(pp)
+                elif pp and not lc:
+                    print(f"  [PlantillaSerializer] LOINC '{loinc_num}' no encontrado para prop {prop_id}.")
             except (ValueError, TypeError):
                 pass
+        if to_update:
+            PlantillaPropiedad.objects.bulk_update(to_update, ['loinc_code'])
 
     def _aplicar_seccion_por_propiedad(self, plantilla, propiedades_secciones):
         """
-        Asigna la sección directamente como string en PlantillaPropiedad.seccion.
+        Asigna la sección directamente como string en PlantillaPropiedad.seccion (bulk_update).
         """
+        if not propiedades_secciones:
+            return
+        prop_ids = []
+        for k in propiedades_secciones:
+            try:
+                prop_ids.append(int(k))
+            except (ValueError, TypeError):
+                pass
+        pp_map = {
+            pp.propiedad_id: pp
+            for pp in PlantillaPropiedad.objects.filter(
+                plantilla=plantilla, propiedad_id__in=prop_ids
+            )
+        }
+        to_update = []
         for prop_id_str, seccion_nombre in propiedades_secciones.items():
             try:
                 prop_id = int(prop_id_str)
-                pp = PlantillaPropiedad.objects.filter(
-                    plantilla=plantilla, propiedad_id=prop_id
-                ).first()
+                pp = pp_map.get(prop_id)
                 if pp:
                     pp.seccion = seccion_nombre.strip() if seccion_nombre else None
-                    pp.save()
+                    to_update.append(pp)
             except (ValueError, TypeError):
                 pass
+        if to_update:
+            PlantillaPropiedad.objects.bulk_update(to_update, ['seccion'])
 
     def _aplicar_ordenes_por_propiedad(self, plantilla, propiedades_ordenes):
-        """Asigna el orden dentro de la sección en PlantillaPropiedad."""
+        """Asigna el orden dentro de la sección en PlantillaPropiedad (bulk_update)."""
+        if not propiedades_ordenes:
+            return
+        prop_ids = []
+        for k in propiedades_ordenes:
+            try:
+                prop_ids.append(int(k))
+            except (ValueError, TypeError):
+                pass
+        pp_map = {
+            pp.propiedad_id: pp
+            for pp in PlantillaPropiedad.objects.filter(
+                plantilla=plantilla, propiedad_id__in=prop_ids
+            )
+        }
+        to_update = []
         for prop_id_str, orden in propiedades_ordenes.items():
             try:
                 prop_id = int(prop_id_str)
-                pp = PlantillaPropiedad.objects.filter(
-                    plantilla=plantilla, propiedad_id=prop_id
-                ).first()
+                pp = pp_map.get(prop_id)
                 if pp:
                     pp.orden = orden
-                    pp.save()
+                    to_update.append(pp)
             except (ValueError, TypeError):
                 pass
+        if to_update:
+            PlantillaPropiedad.objects.bulk_update(to_update, ['orden'])
 
     def _aplicar_ordenes_seccion_por_propiedad(self, plantilla, propiedades_ordenes_seccion):
-        """Asigna el orden_seccion en PlantillaPropiedad."""
+        """Asigna el orden_seccion en PlantillaPropiedad (bulk_update)."""
+        if not propiedades_ordenes_seccion:
+            return
+        prop_ids = []
+        for k in propiedades_ordenes_seccion:
+            try:
+                prop_ids.append(int(k))
+            except (ValueError, TypeError):
+                pass
+        pp_map = {
+            pp.propiedad_id: pp
+            for pp in PlantillaPropiedad.objects.filter(
+                plantilla=plantilla, propiedad_id__in=prop_ids
+            )
+        }
+        to_update = []
         for prop_id_str, orden_seccion in propiedades_ordenes_seccion.items():
             try:
                 prop_id = int(prop_id_str)
-                pp = PlantillaPropiedad.objects.filter(
-                    plantilla=plantilla, propiedad_id=prop_id
-                ).first()
+                pp = pp_map.get(prop_id)
                 if pp:
                     pp.orden_seccion = orden_seccion
-                    pp.save()
+                    to_update.append(pp)
             except (ValueError, TypeError):
                 pass
+        if to_update:
+            PlantillaPropiedad.objects.bulk_update(to_update, ['orden_seccion'])
 
     def create(self, validated_data):
         propiedades_ids             = validated_data.pop('propiedades_ids', [])
