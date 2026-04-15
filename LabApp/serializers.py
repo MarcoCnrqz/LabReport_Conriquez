@@ -133,6 +133,10 @@ class PlantillaSerializer(serializers.ModelSerializer):
     La sección/serie es un CharField en PlantillaPropiedad.
     Se añade soporte para `propiedades_ordenes_seccion` para controlar
     el orden de las secciones en el reporte PDF.
+
+    CORRECCIÓN: loinc_code (FK) se excluye de los fields automáticos y se
+    maneja a través de loinc_num (write) / loinc_panel_num (read) para
+    evitar el error 500 cuando el cliente manda el código LOINC como string.
     """
     propiedades = serializers.SerializerMethodField()
 
@@ -141,6 +145,15 @@ class PlantillaSerializer(serializers.ModelSerializer):
         read_only=True,
         allow_null=True,
         default=None,
+    )
+
+    # Campo de escritura: el cliente manda el código LOINC del panel como string
+    loinc_num = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text="Código LOINC del panel completo (ej. '58410-2'). Se resuelve a FK internamente.",
     )
 
     propiedades_ids = serializers.ListField(
@@ -178,7 +191,6 @@ class PlantillaSerializer(serializers.ModelSerializer):
         help_text="Mapa {remote_propiedad_id: orden} para PlantillaPropiedad.orden.",
     )
 
-    # ── NUEVO ────────────────────────────────────────────────────────────────
     propiedades_ordenes_seccion = serializers.DictField(
         child=serializers.IntegerField(),
         write_only=True,
@@ -192,9 +204,24 @@ class PlantillaSerializer(serializers.ModelSerializer):
     )
 
     class Meta:
-        model  = Plantilla
-        fields = '__all__'
+        model   = Plantilla
+        # loinc_code se excluye porque se maneja manualmente via loinc_num/loinc_panel_num.
+        # Exponerlo como FK entera junto con loinc_num causaba ValidationError 500.
+        exclude = ('loinc_code',)
         read_only_fields = ('sincronizado', 'fecha_modificacion')
+
+    def _resolver_loinc_panel(self, loinc_num_str):
+        """Resuelve un código LOINC string a instancia LoincCode (o None)."""
+        if not loinc_num_str or not str(loinc_num_str).strip():
+            return None
+        try:
+            return LoincCode.objects.get(loinc_num=str(loinc_num_str).strip())
+        except LoincCode.DoesNotExist:
+            print(
+                f"  [PlantillaSerializer] ADVERTENCIA: LOINC panel '{loinc_num_str}' "
+                f"no encontrado. Plantilla se guarda sin loinc_code."
+            )
+            return None
 
     def get_propiedades(self, obj):
         """
@@ -393,6 +420,11 @@ class PlantillaSerializer(serializers.ModelSerializer):
         propiedades_secciones       = validated_data.pop('propiedades_secciones', {})
         propiedades_ordenes         = validated_data.pop('propiedades_ordenes', {})
         propiedades_ordenes_seccion = validated_data.pop('propiedades_ordenes_seccion', {})
+        loinc_num_str               = validated_data.pop('loinc_num', None)
+
+        # Resolver loinc_code FK desde el string recibido del cliente local
+        if loinc_num_str:
+            validated_data['loinc_code'] = self._resolver_loinc_panel(loinc_num_str)
 
         plantilla = Plantilla.objects.create(**validated_data)
 
@@ -422,6 +454,11 @@ class PlantillaSerializer(serializers.ModelSerializer):
         propiedades_secciones       = validated_data.pop('propiedades_secciones', None)
         propiedades_ordenes         = validated_data.pop('propiedades_ordenes', None)
         propiedades_ordenes_seccion = validated_data.pop('propiedades_ordenes_seccion', None)
+        loinc_num_str               = validated_data.pop('loinc_num', None)
+
+        # Resolver loinc_code FK desde el string recibido del cliente local
+        if loinc_num_str is not None:
+            validated_data['loinc_code'] = self._resolver_loinc_panel(loinc_num_str)
 
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
@@ -683,6 +720,16 @@ class PacienteSerializer(serializers.ModelSerializer):
 
 class LaboratorioSerializer(serializers.ModelSerializer):
     logo = Base64ImageField(max_length=None, use_url=True, required=False, allow_null=True)
+
+    # El cliente local SQLite guarda esta FK como `responsable_sanitario_id`.
+    # Django la llama `responsable_sanitario_principal_id` internamente.
+    # Exponemos ambos nombres para máxima compatibilidad.
+    responsable_sanitario_id = serializers.IntegerField(
+        source='responsable_sanitario_principal_id',
+        read_only=True,
+        allow_null=True,
+        default=None,
+    )
 
     class Meta:
         model  = Laboratorio
