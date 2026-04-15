@@ -131,6 +131,7 @@ class LoincCode(models.Model):
     def __str__(self):
         return f"{self.loinc_num} - {self.shortname}"
 
+
 # =============================================================================
 # PROPIEDAD
 # =============================================================================
@@ -149,6 +150,18 @@ class Propiedad(models.Model):
     opciones_cualitativas = models.CharField(max_length=500, null=True, blank=True)
     sincronizado          = models.BooleanField(default=False)
     fecha_modificacion    = models.DateTimeField(auto_now=True)
+
+    # ✅ CORRECCIÓN: FK faltante — causaba FieldError en select_related y
+    # AttributeError en get_propiedades del serializer → error 500 en GET /plantillas/
+    loinc_code = models.ForeignKey(
+        LoincCode,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='propiedades',
+        verbose_name='Código LOINC',
+        help_text='LOINC base de la propiedad. Puede ser sobreescrito por PlantillaPropiedad.',
+    )
 
     def get_opciones_lista(self):
         if self.opciones_cualitativas:
@@ -247,6 +260,7 @@ class PlantillaPropiedad(models.Model):
 
     Campos clave:
     - loinc_code    : LOINC correcto para esta propiedad en el contexto de la plantilla.
+                      Tiene prioridad sobre el loinc_code base de Propiedad.
     - seccion       : Nombre de la serie/sección en el reporte (ej. "FÓRMULA ROJA").
                       Campo de texto libre con sugerencias en el admin.
     - orden         : Posición de la propiedad DENTRO de su sección.
@@ -274,7 +288,6 @@ class PlantillaPropiedad(models.Model):
         help_text='Orden de la propiedad DENTRO de su sección.',
     )
 
-    # ── NUEVO CAMPO ──────────────────────────────────────────────────────────
     orden_seccion = models.PositiveSmallIntegerField(
         default=0,
         verbose_name='Orden de sección',
@@ -287,7 +300,6 @@ class PlantillaPropiedad(models.Model):
 
     class Meta:
         unique_together     = ('plantilla', 'propiedad')
-        # Ordenar por orden_seccion primero, luego por orden dentro de la sección
         ordering            = ['orden_seccion', 'orden', 'propiedad__nombre_propiedad']
         verbose_name        = 'Propiedad de plantilla'
         verbose_name_plural = 'Propiedades de plantilla'
