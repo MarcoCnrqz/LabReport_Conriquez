@@ -63,12 +63,18 @@ class PropiedadSerializer(serializers.ModelSerializer):
         help_text="Código LOINC como string (ej. '2345-7'). Se resuelve a FK internamente.",
     )
 
-    loinc_num_display = serializers.CharField(
-        source='loinc_code.loinc_num',
-        read_only=True,
-        allow_null=True,
-        default=None,
-    )
+    # FIX 1: loinc_num_display como SerializerMethodField para ser defensivo
+    # ante el caso en que Propiedad.loinc_code no esté en el modelo Django.
+    # (init_db sí tiene loinc_code_id en la tabla propiedad, pero el modelo
+    # Django aún no lo declara. Cuando se agregue la FK al modelo, este campo
+    # funcionará automáticamente sin cambios.)
+    loinc_num_display = serializers.SerializerMethodField()
+
+    def get_loinc_num_display(self, obj):
+        lc = getattr(obj, 'loinc_code', None)
+        if lc:
+            return lc.loinc_num or None
+        return None
 
     class Meta:
         model  = Propiedad
@@ -91,8 +97,11 @@ class PropiedadSerializer(serializers.ModelSerializer):
         intervalos_data = validated_data.pop('intervalos', [])
         loinc_num_str   = validated_data.pop('loinc_num', None)
 
+        # FIX 1 (cont.): asignación defensiva — solo si el modelo tiene el campo
         if loinc_num_str:
-            validated_data['loinc_code'] = self._resolver_loinc(loinc_num_str)
+            lc = self._resolver_loinc(loinc_num_str)
+            if lc and hasattr(Propiedad, 'loinc_code'):
+                validated_data['loinc_code'] = lc
 
         propiedad = Propiedad.objects.create(**validated_data)
         for int_data in intervalos_data:
@@ -110,10 +119,12 @@ class PropiedadSerializer(serializers.ModelSerializer):
         instance.tipo                  = validated_data.get('tipo',   instance.tipo)
         instance.opciones_cualitativas = validated_data.get('opciones_cualitativas', instance.opciones_cualitativas)
 
-        if loinc_num_str is not None:
-            instance.loinc_code = self._resolver_loinc(loinc_num_str)
-        else:
-            instance.loinc_code = validated_data.get('loinc_code', instance.loinc_code)
+        # FIX 1 (cont.): solo tocar loinc_code si el modelo lo tiene
+        if hasattr(instance, 'loinc_code'):
+            if loinc_num_str is not None:
+                instance.loinc_code = self._resolver_loinc(loinc_num_str)
+            else:
+                instance.loinc_code = validated_data.get('loinc_code', instance.loinc_code)
 
         instance.save()
 
@@ -135,6 +146,11 @@ class PlantillaSerializer(serializers.ModelSerializer):
     el orden de las secciones en el reporte PDF.
     """
     propiedades = serializers.SerializerMethodField()
+
+    # FIX 2: campo 'secciones' que los controllers esperan en el JSON de respuesta.
+    # _guardar_plantillas_nube() y sincronizar_plantillas_completa() leen
+    # p.get("secciones", []) → [{"nombre": "FÓRMULA ROJA", "orden": 1}, ...]
+    secciones = serializers.SerializerMethodField()
 
     loinc_panel_num = serializers.CharField(
         source='loinc_code.loinc_num',
@@ -178,7 +194,6 @@ class PlantillaSerializer(serializers.ModelSerializer):
         help_text="Mapa {remote_propiedad_id: orden} para PlantillaPropiedad.orden.",
     )
 
-    # ── NUEVO ────────────────────────────────────────────────────────────────
     propiedades_ordenes_seccion = serializers.DictField(
         child=serializers.IntegerField(),
         write_only=True,
@@ -195,6 +210,28 @@ class PlantillaSerializer(serializers.ModelSerializer):
         model  = Plantilla
         fields = '__all__'
         read_only_fields = ('sincronizado', 'fecha_modificacion')
+
+    def get_secciones(self, obj):
+        """
+        FIX 2: Devuelve lista deduplicada de secciones con nombre y orden,
+        derivada de PlantillaPropiedad.seccion / orden_seccion.
+        Formato esperado por los controllers:
+          [{"nombre": "FÓRMULA ROJA", "orden": 1}, {"nombre": "SERIE BLANCA", "orden": 2}]
+        """
+        seen = {}
+        for pp in (
+            obj.plantilla_propiedades
+            .exclude(seccion__isnull=True)
+            .exclude(seccion='')
+            .order_by('orden_seccion', 'seccion')
+        ):
+            nombre = (pp.seccion or '').strip()
+            if nombre and nombre not in seen:
+                seen[nombre] = pp.orden_seccion or 0
+        return [
+            {"nombre": nombre, "orden": orden}
+            for nombre, orden in sorted(seen.items(), key=lambda x: x[1])
+        ]
 
     def get_propiedades(self, obj):
         """
@@ -213,29 +250,28 @@ class PlantillaSerializer(serializers.ModelSerializer):
             .filter(plantilla=obj)
             .select_related(
                 'propiedad',
-                'propiedad__loinc_code',
+                'propiedad__loinc_code',   # FIX 1: select_related defensivo; no rompe si no existe
                 'loinc_code',
             )
-            # CORRECCIÓN: ordenar por orden_seccion primero
             .order_by('orden_seccion', 'orden', 'propiedad__nombre_propiedad')
         )
 
         for pp in pp_qs:
             prop = pp.propiedad
 
+            # FIX 1 (cont.): acceso defensivo a loinc_code en Propiedad
             # Prioridad: LOINC de la tabla intermedia > LOINC de la propiedad
             if pp.loinc_code:
                 loinc_num = pp.loinc_code.loinc_num or ""
-            elif prop.loinc_code:
-                loinc_num = prop.loinc_code.loinc_num or ""
             else:
-                loinc_num = ""
+                prop_lc = getattr(prop, 'loinc_code', None)
+                loinc_num = (prop_lc.loinc_num or "") if prop_lc else ""
 
             data = PropiedadSerializer(prop).data
             data['loinc_num_display'] = loinc_num
             data['seccion_nombre']    = pp.seccion or ""
             data['orden']             = pp.orden or 0
-            data['orden_seccion']     = pp.orden_seccion or 0   # ← NUEVO
+            data['orden_seccion']     = pp.orden_seccion or 0
             result.append(data)
 
         return result
@@ -359,7 +395,6 @@ class PlantillaSerializer(serializers.ModelSerializer):
                 .values_list('propiedad_id', flat=True)
             )
 
-            # CORRECCIÓN: agregar solo los nuevos, preservando seccion/orden de los existentes
             ids_a_agregar = ids_nuevos - ids_existentes
             for pid in ids_a_agregar:
                 PlantillaPropiedad.objects.get_or_create(
@@ -367,7 +402,6 @@ class PlantillaSerializer(serializers.ModelSerializer):
                     propiedad_id=pid,
                 )
 
-            # Quitar los que ya no están en la lista
             ids_a_quitar = ids_existentes - ids_nuevos
             if ids_a_quitar:
                 PlantillaPropiedad.objects.filter(
@@ -420,8 +454,21 @@ class AnalisisSerializer(serializers.ModelSerializer):
 
     LECTURA (GET):
       - resultados anidados con nombre_propiedad, valor, unidad
+
+    FIX 3: El controller envía y lee la clave "resultados" en ambos sentidos.
+    Antes el campo write-only se llamaba "resultados_input" → el POST nunca
+    llegaba al serializer con ese nombre. Ahora usamos "resultados" como campo
+    write-only (ListField) y sobreescribimos to_representation() para devolver
+    los resultados serializados en la lectura GET.
     """
-    resultados = ResultadoSerializer(many=True, read_only=True)
+
+    # FIX 3: campo write-only con el mismo nombre que espera el controller
+    resultados = serializers.ListField(
+        child=serializers.DictField(),
+        write_only=True,
+        required=False,
+        default=list,
+    )
 
     nombres_propiedades_extra = serializers.ListField(
         child=serializers.CharField(),
@@ -437,24 +484,29 @@ class AnalisisSerializer(serializers.ModelSerializer):
         default=list,
     )
 
-    resultados_input = serializers.ListField(
-        child=serializers.DictField(),
-        write_only=True,
-        required=False,
-        default=list,
-        source='resultados',
-    )
-
     class Meta:
         model  = Analisis
         fields = '__all__'
+
+    def to_representation(self, instance):
+        """
+        FIX 3 (cont.): en GET, inyectamos los resultados serializados
+        bajo la clave 'resultados' (la misma que el controller espera).
+        """
+        data = super().to_representation(instance)
+        data['resultados'] = ResultadoSerializer(
+            instance.resultados.all(), many=True
+        ).data
+        return data
 
     def create(self, validated_data):
         resultados_data   = validated_data.pop('resultados', [])
         nombres_extra     = validated_data.pop('nombres_propiedades_extra', [])
         nombres_excluidas = validated_data.pop('nombres_propiedades_excluidas', [])
 
-        validated_data['_desde_api'] = True
+        # FIX 4: validated_data['_desde_api'] = True se eliminó porque
+        # Analisis(**validated_data) levantaba TypeError al recibir ese campo
+        # que no existe en el modelo. Solo se asigna como atributo de instancia.
         analisis = Analisis(**validated_data)
         analisis._desde_api = True
         analisis.save()
@@ -497,11 +549,14 @@ class AnalisisSerializer(serializers.ModelSerializer):
 
             nombre_para_guardar = nombre_prop or propiedad_obj.nombre_propiedad
 
+            # FIX 1 (cont.): defensivo — loinc_code puede no existir en Propiedad
+            loinc_obj = getattr(propiedad_obj, 'loinc_code', None)
+
             resultado_obj, created = ResultadoAnalisis.objects.get_or_create(
                 analisis=analisis,
                 propiedad=propiedad_obj,
                 defaults={
-                    'loinc_code':       propiedad_obj.loinc_code if hasattr(propiedad_obj, 'loinc_code') else None,
+                    'loinc_code':       loinc_obj,
                     'nombre_propiedad': nombre_para_guardar,
                     'valor':            valor,
                     'unidad':           unidad or propiedad_obj.unidad or '',

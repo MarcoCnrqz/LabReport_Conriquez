@@ -390,9 +390,15 @@ def component_terms_for(nombre_propiedad: str) -> list[str]:
     4. Si no hay mapeo, devuelve el nombre original tal cual
        (por si ya está en inglés o es un código numérico).
     """
+    import re
     key = nombre_propiedad.strip()
     if not key:
         return []
+
+    # 0. Si parece un código LOINC numérico (ej. "718", "2345-7"),
+    #    devolverlo tal cual — solo tiene sentido buscarlo en loinc_num.
+    if re.match(r'^\d[\d\-]*$', key):
+        return [key]
 
     # 1. Exacto
     if key in NOMBRE_A_LOINC_COMPONENT:

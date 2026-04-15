@@ -719,43 +719,54 @@ class PlantillaAdmin(admin.ModelAdmin):
             return JsonResponse({'results': [], 'filtrado': False})
 
         # ── PASO 1: Filtro base por texto ────────────────────────────────────
-        # Traduce el nombre español al inglés y busca en los campos de texto.
-        terminos_q = component_terms_for(q)
-        q_text = Q()
-        for termino in terminos_q:
-            q_text |= (
-                Q(loinc_num__icontains=termino) |
-                Q(shortname__icontains=termino)  |
-                Q(component__icontains=termino)
-            )
-        qs_base = LoincCode.objects.filter(q_text)
+        # Si la query parece un código LOINC (solo dígitos/guiones, ej. "718-7"),
+        # buscar ÚNICAMENTE en loinc_num. Así se evitan falsos positivos en
+        # shortname/component y se saltan los filtros semánticos que no aplican
+        # para búsquedas por número.
+        import re
+        es_loinc_num = bool(re.match(r'^\d[\d\-]*$', q))
 
-        # ── PASO 2: Filtro semántico por property + scale_typ ────────────────
-        # Consultar los atributos LOINC esperados para esta propiedad.
-        # Si no hay mapeo definido, attrs queda vacío y se omite este filtro.
-        attrs        = attrs_for(q)
-        prop_terms   = attrs.get('property', [])
-        scale_terms  = attrs.get('scale',    [])
+        if es_loinc_num:
+            qs_base      = LoincCode.objects.filter(loinc_num__icontains=q)
+            qs_semantico = qs_base
+        else:
+            # Traduce el nombre español al inglés y busca en los campos de texto.
+            terminos_q = component_terms_for(q)
+            q_text = Q()
+            for termino in terminos_q:
+                q_text |= (
+                    Q(loinc_num__icontains=termino) |
+                    Q(shortname__icontains=termino)  |
+                    Q(component__icontains=termino)
+                )
+            qs_base = LoincCode.objects.filter(q_text)
 
-        qs_con_attrs = qs_base
-        attrs_activos = False
+            # ── PASO 2: Filtro semántico por property + scale_typ ────────────────
+            # Consultar los atributos LOINC esperados para esta propiedad.
+            # Si no hay mapeo definido, attrs queda vacío y se omite este filtro.
+            attrs        = attrs_for(q)
+            prop_terms   = attrs.get('property', [])
+            scale_terms  = attrs.get('scale',    [])
 
-        if prop_terms:
-            q_prop = Q()
-            for p in prop_terms:
-                q_prop |= Q(property__iexact=p)
-            qs_con_attrs = qs_con_attrs.filter(q_prop)
-            attrs_activos = True
+            qs_con_attrs  = qs_base
+            attrs_activos = False
 
-        if scale_terms and qs_con_attrs.exists():
-            q_scale = Q()
-            for s in scale_terms:
-                q_scale |= Q(scale_typ__iexact=s)
-            qs_con_attrs = qs_con_attrs.filter(q_scale)
+            if prop_terms:
+                q_prop = Q()
+                for p in prop_terms:
+                    q_prop |= Q(property__iexact=p)
+                qs_con_attrs  = qs_con_attrs.filter(q_prop)
+                attrs_activos = True
 
-        # Si el filtro semántico dejó resultados, trabajamos con él;
-        # si no, volvemos al base (no abortar por un mapeo incompleto).
-        qs_semantico = qs_con_attrs if (attrs_activos and qs_con_attrs.exists()) else qs_base
+            if scale_terms and qs_con_attrs.exists():
+                q_scale = Q()
+                for s in scale_terms:
+                    q_scale |= Q(scale_typ__iexact=s)
+                qs_con_attrs = qs_con_attrs.filter(q_scale)
+
+            # Si el filtro semántico dejó resultados, trabajamos con él;
+            # si no, volvemos al base (no abortar por un mapeo incompleto).
+            qs_semantico = qs_con_attrs if (attrs_activos and qs_con_attrs.exists()) else qs_base
 
         # ── PASO 3 y 4: Filtros de contexto (system + method) ────────────────
         system_terms = system_terms_for(muestra) if muestra else []
@@ -1171,37 +1182,47 @@ class AnalisisAdmin(admin.ModelAdmin):
         if not q:
             return JsonResponse({'results': [], 'filtrado': False})
 
-        terminos_q = component_terms_for(q)
-        q_text = Q()
-        for termino in terminos_q:
-            q_text |= (
-                Q(loinc_num__icontains=termino) |
-                Q(shortname__icontains=termino)  |
-                Q(component__icontains=termino)
-            )
-        qs_base = LoincCode.objects.filter(q_text)
+        # Si la query parece un código LOINC (solo dígitos/guiones, ej. "718-7"),
+        # buscar ÚNICAMENTE en loinc_num para evitar falsos positivos en
+        # shortname/component y saltarse los filtros semánticos.
+        import re
+        es_loinc_num = bool(re.match(r'^\d[\d\-]*$', q))
 
-        attrs        = attrs_for(q)
-        prop_terms   = attrs.get('property', [])
-        scale_terms  = attrs.get('scale',    [])
+        if es_loinc_num:
+            qs_base      = LoincCode.objects.filter(loinc_num__icontains=q)
+            qs_semantico = qs_base
+        else:
+            terminos_q = component_terms_for(q)
+            q_text = Q()
+            for termino in terminos_q:
+                q_text |= (
+                    Q(loinc_num__icontains=termino) |
+                    Q(shortname__icontains=termino)  |
+                    Q(component__icontains=termino)
+                )
+            qs_base = LoincCode.objects.filter(q_text)
 
-        qs_con_attrs  = qs_base
-        attrs_activos = False
+            attrs        = attrs_for(q)
+            prop_terms   = attrs.get('property', [])
+            scale_terms  = attrs.get('scale',    [])
 
-        if prop_terms:
-            q_prop = Q()
-            for p in prop_terms:
-                q_prop |= Q(property__iexact=p)
-            qs_con_attrs  = qs_con_attrs.filter(q_prop)
-            attrs_activos = True
+            qs_con_attrs  = qs_base
+            attrs_activos = False
 
-        if scale_terms and qs_con_attrs.exists():
-            q_scale = Q()
-            for s in scale_terms:
-                q_scale |= Q(scale_typ__iexact=s)
-            qs_con_attrs = qs_con_attrs.filter(q_scale)
+            if prop_terms:
+                q_prop = Q()
+                for p in prop_terms:
+                    q_prop |= Q(property__iexact=p)
+                qs_con_attrs  = qs_con_attrs.filter(q_prop)
+                attrs_activos = True
 
-        qs_semantico = qs_con_attrs if (attrs_activos and qs_con_attrs.exists()) else qs_base
+            if scale_terms and qs_con_attrs.exists():
+                q_scale = Q()
+                for s in scale_terms:
+                    q_scale |= Q(scale_typ__iexact=s)
+                qs_con_attrs = qs_con_attrs.filter(q_scale)
+
+            qs_semantico = qs_con_attrs if (attrs_activos and qs_con_attrs.exists()) else qs_base
 
         system_terms = system_terms_for(muestra) if muestra else []
         method_terms = method_terms_for(metodo)  if metodo  else []
