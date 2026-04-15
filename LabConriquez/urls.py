@@ -6,11 +6,12 @@ from rest_framework.routers import DefaultRouter
 
 from django.contrib.auth import logout
 from django.shortcuts import redirect
+
 from LabApp import views
 
 
 # ======================================================
-# 1. FUNCIÓN FIX PARA LOGOUT (DJANGO 5)
+# 1. FIX LOGOUT (DJANGO 5)
 # ======================================================
 def logout_fix(request):
     logout(request)
@@ -18,58 +19,79 @@ def logout_fix(request):
 
 
 # ======================================================
-# 2. CONFIGURACIÓN DEL ROUTER (API REST)
+# 2. ROUTER API REST (CORREGIDO)
 # ======================================================
 router = DefaultRouter()
 
-router.register(r'pacientes', views.PacienteViewSet)
-router.register(r'laboratorios', views.LaboratorioViewSet)
-router.register(r'analisis', views.AnalisisViewSet)
-router.register(r'plantillas', views.PlantillaViewSet)
+# --- ENTIDADES PRINCIPALES ---
+router.register(r'plantillas', views.PlantillaViewSet, basename='plantillas')
+router.register(r'propiedades', views.PropiedadViewSet, basename='propiedades')  # ✔️ FIX CRÍTICO
 
-# 🔥 FIX CRÍTICO: agregar propiedades
-router.register(r'propiedades', views.PropiedadPlantillaViewSet)
-
-router.register(r'intervalos_referencia', views.IntervaloReferenciaViewSet)
-
-# Resultados individuales — permite PATCH /api/resultados/<id>/ desde la app local
+router.register(r'laboratorios', views.LaboratorioViewSet, basename='laboratorios')
+router.register(r'pacientes', views.PacienteViewSet, basename='pacientes')
+router.register(r'analisis', views.AnalisisViewSet, basename='analisis')
 router.register(r'resultados', views.ResultadoAnalisisViewSet, basename='resultados')
 
+# --- RELACIONES (MUCHOS A MUCHOS) ---
+router.register(
+    r'plantilla-propiedades',
+    views.PropiedadPlantillaViewSet,
+    basename='plantilla-propiedades'
+)
+
+# --- CONFIGURACIONES / APOYO ---
+router.register(
+    r'intervalos_referencia',
+    views.IntervaloReferenciaViewSet,
+    basename='intervalos_referencia'
+)
+
+# (Opcional pero recomendado si tienes usuarios vía API)
+if hasattr(views, 'UsuarioViewSet'):
+    router.register(r'usuarios', views.UsuarioViewSet, basename='usuarios')
+
 
 # ======================================================
-# 3. PATRONES DE URL
+# 3. URLS PRINCIPALES
 # ======================================================
 urlpatterns = [
-    # --- Admin ---
+    # --- ADMIN ---
     path('admin/logout/', logout_fix, name='logout_fix'),
     path('admin/', admin.site.urls),
 
-    # --- Inicio ---
+    # --- INICIO ---
     path('', views.inicio, name="inicio"),
     path("LabConriquezMex/", views.inicio, name="inicio_legacy"),
 
     # --- API REST ---
     path('api/', include(router.urls)),
+
+    # --- AUTH API ---
     path('api/login/', views.login_api, name='api_login'),
     path('api/token/refresh/', views.refresh_token_api, name='api_token_refresh'),
     path('api/mi_laboratorio/', views.mi_laboratorio_api, name='mi_laboratorio_api'),
 
-    # --- Funciones extendidas ---
+    # ==================================================
+    # 4. FUNCIONES EXTENDIDAS (ADMIN PERSONALIZADO)
+    # ==================================================
     path(
         'admin_ext/analisis/<int:pk>/generar_pdf/',
         views.generar_pdf_analisis,
         name='generar_pdf_analisis'
     ),
+
     path(
         'admin_ext/plantilla/<int:plantilla_id>/tipo_formato/',
         views.plantilla_tipo_formato,
         name='plantilla_tipo_formato'
     ),
+
     path(
         'admin_ext/plantilla/<int:plantilla_id>/propiedades/',
         views.plantilla_propiedades,
         name='plantilla_propiedades'
     ),
+
     path(
         'admin_ext/propiedades_disponibles/',
         views.propiedades_disponibles,
@@ -79,7 +101,7 @@ urlpatterns = [
 
 
 # ======================================================
-# 4. CONFIGURACIÓN DE MEDIA (solo en desarrollo)
+# 5. MEDIA (SOLO DESARROLLO)
 # ======================================================
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
