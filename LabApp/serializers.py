@@ -53,6 +53,18 @@ class IntervaloNestedSerializer(serializers.ModelSerializer):
 
 
 class PropiedadSerializer(serializers.ModelSerializer):
+    """
+    Serializer de Propiedad.
+
+    ALINEACIÓN CON DJANGO: Propiedad NO tiene FK a LoincCode.
+    El loinc_code pertenece a PlantillaPropiedad (tabla intermedia).
+    Por eso loinc_num_display se inyecta manualmente desde PlantillaSerializer
+    y NO se lee desde propiedad.loinc_code (que no existe en el modelo).
+
+    loinc_num (write_only) solo se acepta en entrada para que el cliente
+    local pueda informar qué LOINC quiere asignar en la relación intermedia.
+    El serializer lo extrae pero NO lo guarda en Propiedad.
+    """
     intervalos = IntervaloNestedSerializer(many=True, required=False)
 
     loinc_num = serializers.CharField(
@@ -60,39 +72,29 @@ class PropiedadSerializer(serializers.ModelSerializer):
         required=False,
         allow_blank=True,
         allow_null=True,
-        help_text="Código LOINC como string (ej. '2345-7'). Se resuelve a FK internamente.",
+        help_text=(
+            "Código LOINC como string (ej. '2345-7'). "
+            "Usado para asignarlo en PlantillaPropiedad, NO se guarda en Propiedad."
+        ),
     )
 
-    loinc_num_display = serializers.CharField(
-        source='loinc_code.loinc_num',
-        read_only=True,
-        allow_null=True,
-        default=None,
-    )
+    # loinc_num_display se inyecta externamente desde PlantillaSerializer.get_propiedades().
+    # Se declara aquí para que aparezca en la representación serializada cuando
+    # PlantillaSerializer lo añade manualmente a data[].
+    loinc_num_display = serializers.CharField(read_only=True, default="", allow_null=True)
 
     class Meta:
         model  = Propiedad
-        fields = '__all__'
+        fields = [
+            'id', 'nombre_propiedad', 'tipo', 'unidad',
+            'opciones_cualitativas', 'sincronizado', 'fecha_modificacion',
+            'intervalos', 'loinc_num', 'loinc_num_display',
+        ]
         read_only_fields = ('sincronizado', 'fecha_modificacion')
-
-    def _resolver_loinc(self, loinc_num_str):
-        if not loinc_num_str or not loinc_num_str.strip():
-            return None
-        try:
-            return LoincCode.objects.get(loinc_num=loinc_num_str.strip())
-        except LoincCode.DoesNotExist:
-            print(
-                f"  [PropiedadSerializer] ADVERTENCIA: LOINC '{loinc_num_str}' "
-                f"no encontrado en BD Django. Propiedad se guarda sin código LOINC."
-            )
-            return None
 
     def create(self, validated_data):
         intervalos_data = validated_data.pop('intervalos', [])
-        loinc_num_str   = validated_data.pop('loinc_num', None)
-
-        if loinc_num_str:
-            validated_data['loinc_code'] = self._resolver_loinc(loinc_num_str)
+        validated_data.pop('loinc_num', None)  # No pertenece a Propiedad
 
         propiedad = Propiedad.objects.create(**validated_data)
         for int_data in intervalos_data:
@@ -103,18 +105,12 @@ class PropiedadSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         intervalos_data = validated_data.pop('intervalos', None)
-        loinc_num_str   = validated_data.pop('loinc_num', None)
+        validated_data.pop('loinc_num', None)  # No pertenece a Propiedad
 
         instance.nombre_propiedad      = validated_data.get('nombre_propiedad', instance.nombre_propiedad)
         instance.unidad                = validated_data.get('unidad', instance.unidad)
         instance.tipo                  = validated_data.get('tipo',   instance.tipo)
         instance.opciones_cualitativas = validated_data.get('opciones_cualitativas', instance.opciones_cualitativas)
-
-        if loinc_num_str is not None:
-            instance.loinc_code = self._resolver_loinc(loinc_num_str)
-        else:
-            instance.loinc_code = validated_data.get('loinc_code', instance.loinc_code)
-
         instance.save()
 
         if intervalos_data is not None:
@@ -130,13 +126,16 @@ class PlantillaSerializer(serializers.ModelSerializer):
     """
     Serializer de Plantilla.
 
-    La sección/serie es un CharField en PlantillaPropiedad.
-    Se añade soporte para `propiedades_ordenes_seccion` para controlar
-    el orden de las secciones en el reporte PDF.
-
-    CORRECCIÓN: loinc_code (FK) se excluye de los fields automáticos y se
-    maneja a través de loinc_num (write) / loinc_panel_num (read) para
-    evitar el error 500 cuando el cliente manda el código LOINC como string.
+    ALINEACIÓN CON DJANGO:
+    - loinc_code (FK en Plantilla) representa el panel completo.
+      Se excluye de fields automáticos y se maneja via loinc_num (write) /
+      loinc_panel_num (read) para evitar error 500 cuando el cliente manda
+      el código LOINC como string.
+    - El loinc_code de cada propiedad dentro de la plantilla vive en
+      PlantillaPropiedad.loinc_code, NO en Propiedad. Se expone como
+      loinc_num_display en get_propiedades().
+    - seccion es un CharField simple en PlantillaPropiedad (texto libre).
+    - orden_seccion controla el orden de las secciones en el reporte PDF.
     """
     propiedades = serializers.SerializerMethodField()
 
@@ -225,22 +224,24 @@ class PlantillaSerializer(serializers.ModelSerializer):
 
     def get_propiedades(self, obj):
         """
-        Devuelve las propiedades enriquecidas con loinc_num_display,
-        seccion_nombre y orden_seccion leídos desde PlantillaPropiedad.
+        Devuelve las propiedades enriquecidas con datos de PlantillaPropiedad.
 
-        Campos extra:
-          - loinc_num_display : str
-          - seccion_nombre    : str
-          - orden             : int  (orden dentro de la sección)
-          - orden_seccion     : int  (orden de la sección en el reporte)
+        ALINEACIÓN CON DJANGO: el loinc_num_display se lee desde
+        PlantillaPropiedad.loinc_code (la tabla intermedia), NO desde
+        Propiedad.loinc_code (que no existe en el modelo).
+
+        Campos extra inyectados:
+          - loinc_num_display : str  — LOINC de la tabla intermedia PlantillaPropiedad
+          - seccion_nombre    : str  — CharField libre de PlantillaPropiedad
+          - orden             : int  — orden dentro de la sección
+          - orden_seccion     : int  — orden de la sección en el reporte PDF
         """
         base_qs = (
             PlantillaPropiedad.objects
             .filter(plantilla=obj)
             .select_related(
                 'propiedad',
-                'propiedad__loinc_code',
-                'loinc_code',
+                'loinc_code',   # loinc_code de PlantillaPropiedad, no de Propiedad
             )
         )
 
@@ -263,13 +264,9 @@ class PlantillaSerializer(serializers.ModelSerializer):
         for pp in pp_list:
             prop = pp.propiedad
 
-            # Prioridad: LOINC de la tabla intermedia > LOINC de la propiedad
-            if pp.loinc_code:
-                loinc_num = pp.loinc_code.loinc_num or ""
-            elif prop.loinc_code:
-                loinc_num = prop.loinc_code.loinc_num or ""
-            else:
-                loinc_num = ""
+            # El loinc_num viene ÚNICAMENTE de PlantillaPropiedad.loinc_code.
+            # Propiedad no tiene FK a LoincCode en el modelo Django.
+            loinc_num = pp.loinc_code.loinc_num if pp.loinc_code else ""
 
             data = PropiedadSerializer(prop).data
             data['loinc_num_display'] = loinc_num
@@ -472,7 +469,7 @@ class PlantillaSerializer(serializers.ModelSerializer):
                 .values_list('propiedad_id', flat=True)
             )
 
-            # CORRECCIÓN: agregar solo los nuevos, preservando seccion/orden de los existentes
+            # Agregar solo los nuevos, preservando seccion/orden de los existentes
             ids_a_agregar = ids_nuevos - ids_existentes
             for pid in ids_a_agregar:
                 PlantillaPropiedad.objects.get_or_create(
@@ -533,6 +530,10 @@ class AnalisisSerializer(serializers.ModelSerializer):
 
     LECTURA (GET):
       - resultados anidados con nombre_propiedad, valor, unidad
+
+    ALINEACIÓN CON DJANGO:
+      - loinc_code en ResultadoAnalisis se obtiene de PlantillaPropiedad,
+        NO de Propiedad (que no tiene esa FK en el modelo).
     """
     resultados = ResultadoSerializer(many=True, read_only=True)
 
@@ -561,6 +562,22 @@ class AnalisisSerializer(serializers.ModelSerializer):
     class Meta:
         model  = Analisis
         fields = '__all__'
+
+    def _obtener_loinc_para_resultado(self, analisis, propiedad_obj):
+        """
+        Busca el loinc_code correcto en PlantillaPropiedad.
+        Propiedad no tiene FK a LoincCode en el modelo Django.
+        """
+        if not analisis.plantilla_id:
+            return None
+        try:
+            pp = PlantillaPropiedad.objects.get(
+                plantilla_id=analisis.plantilla_id,
+                propiedad=propiedad_obj,
+            )
+            return pp.loinc_code
+        except PlantillaPropiedad.DoesNotExist:
+            return None
 
     def create(self, validated_data):
         resultados_data   = validated_data.pop('resultados', [])
@@ -611,11 +628,14 @@ class AnalisisSerializer(serializers.ModelSerializer):
 
             nombre_para_guardar = nombre_prop or propiedad_obj.nombre_propiedad
 
+            # loinc_code viene de PlantillaPropiedad, no de Propiedad
+            loinc_obj = self._obtener_loinc_para_resultado(analisis, propiedad_obj)
+
             resultado_obj, created = ResultadoAnalisis.objects.get_or_create(
                 analisis=analisis,
                 propiedad=propiedad_obj,
                 defaults={
-                    'loinc_code':       propiedad_obj.loinc_code if hasattr(propiedad_obj, 'loinc_code') else None,
+                    'loinc_code':       loinc_obj,
                     'nombre_propiedad': nombre_para_guardar,
                     'valor':            valor,
                     'unidad':           unidad or propiedad_obj.unidad or '',
