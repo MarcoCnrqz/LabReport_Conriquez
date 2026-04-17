@@ -1,21 +1,52 @@
 /**
- * analisis_imagenes_toggle.js
- * v17 — TRES CORRECCIONES:
- *   1. FIX valores de referencia en props extra: consultarPlantilla ahora
- *      incluye paciente_id en urlDisp para que propiedades_disponibles
- *      devuelva valor_min/valor_max reales (antes siempre null).
- *   2. FIX desalineación de tabla: construirFila restaura la columna
- *      tdLoinc (field-col_loinc_code) que v16 eliminó. tdNombre
- *      (field-nombre_propiedad) se omite porque ese campo fue eliminado
- *      del inline de admin por ser redundante con tdProp.
- *   3. NEW botón "🌐 Buscar en LOINC.org" inyectado en el encabezado del
- *      inline de resultados para acceder rápidamente al buscador oficial.
+ * analisis_imagenes_toggle.js  v18
+ *
+ * NUEVAS FUNCIONES respecto a v17:
+ *   1. SECCIÓN para propiedades extra — al agregar una propiedad extra se
+ *      muestra un select de "Serie / Sección" igual al que aparece en el
+ *      picker de plantillas. El valor elegido se envía al backend via el
+ *      hidden _propiedades_extra_secciones (array paralelo a los ids).
+ *
+ *   2. TIPO DE MUESTRA y MÉTODO bloqueados al entrar — los campos se
+ *      muestran en modo solo-lectura con un candado visual. Un botón
+ *      "✏️ Modificar" los desbloquea. Al desbloquearlos aparece un banner
+ *      de advertencia que indica que los LOINCs deben revisarse si se
+ *      cambia el espécimen o método analítico.
+ *
+ *   3. PRE-LLENADO AUTOMÁTICO de muestra/método desde la plantilla — al
+ *      seleccionar una plantilla (modo alta) se consulta el endpoint
+ *      /admin_ext/plantilla/<id>/muestra-metodo/ y se rellenan los campos,
+ *      que quedan bloqueados con la etiqueta "Heredado de la plantilla".
  */
 
 (function () {
     'use strict';
 
     var PREFIX = 'resultados';
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // SECCIONES SUGERIDAS (igual que SECCIONES_SUGERIDAS en admin.py)
+    // ═══════════════════════════════════════════════════════════════════════
+    var SECCIONES_SUGERIDAS = [
+        'FÓRMULA ROJA',
+        'FÓRMULA BLANCA',
+        'SERIE PLAQUETARIA',
+        'SERIE TROMBOCÍTICA',
+        'BIOQUÍMICA SANGUÍNEA',
+        'QUÍMICA SANGUÍNEA',
+        'PERFIL LIPÍDICO',
+        'PRUEBAS DE FUNCIÓN HEPÁTICA',
+        'PRUEBAS DE FUNCIÓN RENAL',
+        'ELECTRÓLITOS SÉRICOS',
+        'HORMONAS TIROIDEAS',
+        'HORMONAS REPRODUCTIVAS',
+        'MARCADORES TUMORALES',
+        'URIANÁLISIS',
+        'INMUNOLOGÍA / SEROLOGÍA',
+        'COAGULACIÓN',
+        'MICROBIOLOGÍA',
+        'GASOMETRÍA',
+    ];
 
     // -------------------------------------------------------
     // HELPERS DE MODO
@@ -54,7 +85,6 @@
         var fieldset = seccion.closest('fieldset') || seccion;
 
         if (tipoFormato === 'IMAGENES_RESULTADOS') {
-            // Mostrar: restaurar estilos normales
             fieldset.style.visibility = '';
             fieldset.style.position   = '';
             fieldset.style.height     = '';
@@ -62,15 +92,10 @@
             fieldset.style.padding    = '';
             fieldset.style.margin     = '';
             fieldset.style.border     = '';
-            // Habilitar los inputs de archivo para que el browser los envíe
             fieldset.querySelectorAll('input[type="file"]').forEach(function (inp) {
                 inp.disabled = false;
             });
         } else {
-            // Ocultar VISUALMENTE pero sin display:none — así los <input type="file">
-            // siguen en el DOM activo y el browser los incluye en el POST.
-            // Si el usuario no seleccionó archivo, el campo queda vacío (sin cambio),
-            // que es el comportamiento correcto para no borrar imágenes existentes.
             fieldset.style.visibility = 'hidden';
             fieldset.style.position   = 'absolute';
             fieldset.style.height     = '0';
@@ -78,7 +103,6 @@
             fieldset.style.padding    = '0';
             fieldset.style.margin     = '0';
             fieldset.style.border     = 'none';
-            // NO deshabilitar — queremos que los inputs existan pero vacíos
         }
     }
 
@@ -138,10 +162,236 @@
     var _extrasSeleccionadas    = {}; // { id: propObj }
     var _excluidasSeleccionadas = {}; // { nombre_propiedad: true }
     var _extraLoincMap          = {}; // { propId: { loincId, loincNum, loincDesc } }
+    var _extraSeccionMap        = {}; // { propId: 'NOMBRE SECCION' }  ← NUEVO
 
-    // -------------------------------------------------------
-    // CONSTRUIR FILA
-    // -------------------------------------------------------
+    // Valores de muestra/método heredados de la plantilla (para restaurar)
+    var _templateMuestra = '';
+    var _templateMetodo  = '';
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // BLOQUEO / DESBLOQUEO DE TIPO DE MUESTRA Y MÉTODO
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /**
+     * Inyecta el sistema lock/unlock en los campos tipo_muestra y metodo.
+     * Debe llamarse después de que el DOM esté listo.
+     * Puede llamarse varias veces (es idempotente gracias al id único).
+     */
+    function setupMuestraMetodoCampos() {
+        if (document.getElementById('_mm_control_bar')) return;
+
+        var inputMuestra = document.getElementById('id_tipo_muestra');
+        var inputMetodo  = document.getElementById('id_metodo');
+        if (!inputMuestra && !inputMetodo) return;
+
+        // Encontrar el fieldset que contiene estos campos
+        var fieldset = null;
+        if (inputMuestra) {
+            fieldset = inputMuestra.closest('fieldset');
+        }
+        if (!fieldset && inputMetodo) {
+            fieldset = inputMetodo.closest('fieldset');
+        }
+
+        // ── Banner de advertencia (oculto hasta que el usuario desbloquee) ──
+        var aviso = document.createElement('div');
+        aviso.id = '_mm_aviso_loinc';
+        aviso.style.cssText = [
+            'display:none',
+            'margin:10px 0 4px',
+            'padding:10px 14px',
+            'background:#fff8e1',
+            'border:1px solid #f9a825',
+            'border-left:4px solid #f57f17',
+            'border-radius:4px',
+            'font-size:13px',
+            'line-height:1.5',
+        ].join(';');
+        aviso.innerHTML = [
+            '<strong style="color:#e65100;">⚠️ Verifique los códigos LOINC</strong><br>',
+            'Ha modificado el tipo de muestra o el método analítico. Una misma magnitud ',
+            '(p. ej. Hemoglobina) puede tener distintos códigos LOINC según el espécimen ',
+            'o el método. Revise que cada propiedad tenga el LOINC correcto para el nuevo ',
+            'contexto.<br>',
+            '<a href="https://loinc.org/search/" target="_blank" rel="noopener" ',
+            'style="color:#1a6fa8;font-size:12px;">🌐 Buscar en LOINC.org ↗</a>',
+            '<span id="_mm_restaurar_wrap" style="display:none;">',
+            ' &nbsp;·&nbsp; ',
+            '<button type="button" id="_mm_btn_restaurar" ',
+            'style="border:none;background:none;color:#1a6fa8;cursor:pointer;',
+            'font-size:12px;text-decoration:underline;padding:0;">',
+            '🔒 Restaurar valores de la plantilla',
+            '</button>',
+            '</span>',
+        ].join('');
+
+        // ── Barra de control: botón "Modificar" ─────────────────────────────
+        var controlBar = document.createElement('div');
+        controlBar.id = '_mm_control_bar';
+        controlBar.style.cssText = 'margin:6px 0 2px;display:flex;align-items:center;gap:8px;';
+        controlBar.innerHTML = [
+            '<span id="_mm_lock_badge" style="',
+            'display:inline-flex;align-items:center;gap:5px;',
+            'background:#f5f5f5;border:1px solid #ddd;border-radius:4px;',
+            'padding:3px 10px;font-size:12px;color:#555;">',
+            '🔒 <span id="_mm_badge_texto">Los campos están protegidos</span>',
+            '</span>',
+            '<button type="button" id="_mm_btn_modificar" style="',
+            'border:1px solid #1a6fa8;background:#e8f0fe;color:#1a6fa8;',
+            'border-radius:4px;padding:4px 12px;cursor:pointer;font-size:12px;',
+            'font-weight:600;white-space:nowrap;">',
+            '✏️ Modificar',
+            '</button>',
+        ].join('');
+
+        // Insertar en el fieldset (o en el contenedor padre)
+        if (fieldset) {
+            fieldset.appendChild(aviso);
+            fieldset.appendChild(controlBar);
+        } else {
+            // Fallback: insertar después del último campo de metodo
+            var refEl = inputMetodo
+                ? (inputMetodo.closest('.form-row') || inputMetodo)
+                : (inputMuestra ? (inputMuestra.closest('.form-row') || inputMuestra) : null);
+            if (refEl && refEl.parentNode) {
+                refEl.parentNode.insertBefore(aviso, refEl.nextSibling);
+                refEl.parentNode.insertBefore(controlBar, aviso.nextSibling);
+            }
+        }
+
+        // ── Aplicar bloqueo inicial ─────────────────────────────────────────
+        _aplicarBloqueoVisual(inputMuestra, inputMetodo);
+
+        // ── Evento: desbloquear ─────────────────────────────────────────────
+        document.getElementById('_mm_btn_modificar').addEventListener('click', function () {
+            _desbloquearCampos(inputMuestra, inputMetodo);
+        });
+
+        // ── Evento: restaurar ───────────────────────────────────────────────
+        document.getElementById('_mm_btn_restaurar').addEventListener('click', function () {
+            if (inputMuestra) inputMuestra.value = _templateMuestra;
+            if (inputMetodo)  inputMetodo.value  = _templateMetodo;
+            _aplicarBloqueoVisual(inputMuestra, inputMetodo);
+            document.getElementById('_mm_aviso_loinc').style.display = 'none';
+            document.getElementById('_mm_restaurar_wrap').style.display = 'none';
+        });
+    }
+
+    /** Pone los campos en modo solo lectura (gris, bloqueado). */
+    function _aplicarBloqueoVisual(inputMuestra, inputMetodo) {
+        [inputMuestra, inputMetodo].forEach(function (inp) {
+            if (!inp) return;
+            inp.readOnly = true;
+            inp.style.background    = '#f5f5f5';
+            inp.style.color         = '#555';
+            inp.style.cursor        = 'not-allowed';
+            inp.style.borderColor   = '#ddd';
+            // Ocultar el botón 📋 del SugerenciasDropdownWidget
+            var wrap = inp.closest('.sdw-wrap');
+            if (wrap) {
+                var btn = wrap.querySelector('.sdw-btn');
+                if (btn) btn.style.display = 'none';
+                // Cerrar menú si estaba abierto
+                var ddId = 'dd_' + inp.id.replace('id_', '');
+                var dd = document.getElementById(ddId);
+                if (dd) dd.style.display = 'none';
+            }
+        });
+
+        var badge = document.getElementById('_mm_lock_badge');
+        var btnMod = document.getElementById('_mm_btn_modificar');
+        if (badge) badge.style.display = 'inline-flex';
+        if (btnMod) btnMod.style.display = '';
+    }
+
+    /** Quita el modo solo lectura y muestra el banner de advertencia. */
+    function _desbloquearCampos(inputMuestra, inputMetodo) {
+        [inputMuestra, inputMetodo].forEach(function (inp) {
+            if (!inp) return;
+            inp.readOnly = false;
+            inp.style.background  = '';
+            inp.style.color       = '';
+            inp.style.cursor      = '';
+            inp.style.borderColor = '';
+            // Restaurar el botón 📋
+            var wrap = inp.closest('.sdw-wrap');
+            if (wrap) {
+                var btn = wrap.querySelector('.sdw-btn');
+                if (btn) btn.style.display = '';
+            }
+        });
+
+        // Ocultar el botón Modificar y el candado
+        var badge = document.getElementById('_mm_lock_badge');
+        var btnMod = document.getElementById('_mm_btn_modificar');
+        if (badge) badge.style.display = 'none';
+        if (btnMod) btnMod.style.display = 'none';
+
+        // Mostrar aviso LOINC
+        var aviso = document.getElementById('_mm_aviso_loinc');
+        if (aviso) aviso.style.display = '';
+
+        // Mostrar opción restaurar solo si hay valores de plantilla que restaurar
+        var restaurarWrap = document.getElementById('_mm_restaurar_wrap');
+        if (restaurarWrap && (_templateMuestra || _templateMetodo)) {
+            restaurarWrap.style.display = 'inline';
+        }
+    }
+
+    /**
+     * Pre-llena tipo_muestra y metodo desde la plantilla via AJAX,
+     * luego aplica el bloqueo visual.
+     * Si los campos ya tienen valor (modo edición) solo bloquea.
+     */
+    function prefillYBloquearMuestraMetodo(plantillaId) {
+        var inputMuestra = document.getElementById('id_tipo_muestra');
+        var inputMetodo  = document.getElementById('id_metodo');
+
+        if (!plantillaId) return;
+
+        var url = '/admin_ext/plantilla/' + plantillaId + '/muestra-metodo/';
+        fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                _templateMuestra = data.tipo_muestra || '';
+                _templateMetodo  = data.metodo       || '';
+
+                // Solo rellenar si están vacíos (primera vez)
+                if (inputMuestra && !inputMuestra.value) {
+                    inputMuestra.value = _templateMuestra;
+                }
+                if (inputMetodo && !inputMetodo.value) {
+                    inputMetodo.value = _templateMetodo;
+                }
+
+                // Actualizar texto del badge
+                var badgeTexto = document.getElementById('_mm_badge_texto');
+                if (badgeTexto) {
+                    badgeTexto.textContent = _templateMuestra
+                        ? 'Heredado de la plantilla'
+                        : 'Los campos están protegidos';
+                }
+
+                // Si el control bar ya existe, reaplicar bloqueo visual
+                if (document.getElementById('_mm_control_bar')) {
+                    // Si estaban desbloqueados (el usuario previamente hizo clic en Modificar),
+                    // respetar eso. Si estaban bloqueados, reaplicar.
+                    var badge = document.getElementById('_mm_lock_badge');
+                    var bloqueoActivo = badge && badge.style.display !== 'none';
+                    if (bloqueoActivo) {
+                        _aplicarBloqueoVisual(inputMuestra, inputMetodo);
+                    }
+                } else {
+                    // El control bar todavía no se creó — setupMuestraMetodoCampos()
+                    // se llama desde init() y lo creará después.
+                }
+            })
+            .catch(function () { /* silencioso */ });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // CONSTRUIR FILA del inline de resultados
+    // ═══════════════════════════════════════════════════════════════════════
 
     function construirFila(index, prop, esExtra, esExcluida) {
         var nombre   = prop.nombre_propiedad;
@@ -152,7 +402,6 @@
         var valorMax = prop.valor_max;
         var pref     = PREFIX + '-' + index;
 
-        // Resolver LOINC: base → prop.loinc_num; extra → _extraLoincMap
         var loincNum  = '';
         var loincDesc = '';
         if (esExtra) {
@@ -169,33 +418,23 @@
         var tr = document.createElement('tr');
         tr.id        = PREFIX + '-' + index;
         tr.className = 'form-row dynamic-' + PREFIX;
+        if (esExcluida) tr.style.cssText = 'opacity:0.45;background:#f5f5f5;';
 
-        if (esExcluida) {
-            tr.style.cssText = 'opacity:0.45;background:#f5f5f5;';
-        }
-
-        // ── Hidden: id + analisis ───────────────────────────────────
+        // ── Hidden: id + analisis ──────────────────────────────────────────
         var tdId = document.createElement('td');
         tdId.className     = 'original';
         tdId.style.display = 'none';
-
-        var inputId = document.createElement('input');
-        inputId.type  = 'hidden';
-        inputId.name  = pref + '-id';
-        inputId.id    = 'id_' + pref + '-id';
-        inputId.value = '';
-        tdId.appendChild(inputId);
-
-        var inputAnalisis = document.createElement('input');
-        inputAnalisis.type  = 'hidden';
-        inputAnalisis.name  = pref + '-analisis';
-        inputAnalisis.id    = 'id_' + pref + '-analisis';
-        inputAnalisis.value = '';
-        tdId.appendChild(inputAnalisis);
-
+        ['id','analisis'].forEach(function (campo) {
+            var inp = document.createElement('input');
+            inp.type  = 'hidden';
+            inp.name  = pref + '-' + campo;
+            inp.id    = 'id_' + pref + '-' + campo;
+            inp.value = '';
+            tdId.appendChild(inp);
+        });
         tr.appendChild(tdId);
 
-        // ── Columna: propiedad ──────────────────────────────────────
+        // ── Columna: propiedad ─────────────────────────────────────────────
         var tdProp = document.createElement('td');
         tdProp.className           = 'field-propiedad';
         tdProp.style.verticalAlign = 'middle';
@@ -232,12 +471,9 @@
                 'border-radius:3px;padding:1px 5px;margin-left:5px;';
             tdProp.appendChild(badgeEx);
         }
-
-        // Mostrar código LOINC bajo el nombre de la propiedad
         tr.appendChild(tdProp);
 
-        // ── Columna: col_loinc_code — readonly div (col 2) ─────────────────
-        // nombre_propiedad fue eliminado del inline (es redundante con tdProp),
+        // ── Columna: col_loinc_code ────────────────────────────────────────
         var tdLoinc = document.createElement('td');
         tdLoinc.className           = 'field-col_loinc_code';
         tdLoinc.style.verticalAlign = 'middle';
@@ -267,15 +503,11 @@
             var sel = document.createElement('select');
             sel.name           = pref + '-valor';
             sel.id             = 'id_' + pref + '-valor';
-            // Fix C: ancho moderado en lugar de 100%
             sel.style.cssText  = 'width:120px;max-width:100%;font-size:13px;';
             if (esExcluida) sel.disabled = true;
-
             var optBlank = document.createElement('option');
-            optBlank.value       = '';
-            optBlank.textContent = '---------';
+            optBlank.value = ''; optBlank.textContent = '---------';
             sel.appendChild(optBlank);
-
             opsList.forEach(function (op) {
                 var opt = document.createElement('option');
                 opt.value = op; opt.textContent = op;
@@ -284,77 +516,57 @@
             tdValor.appendChild(sel);
         } else {
             var inputValor = document.createElement('input');
-            inputValor.type         = 'text';
-            inputValor.name         = pref + '-valor';
-            inputValor.id           = 'id_' + pref + '-valor';
-            inputValor.value        = '';
-            // Fix C: ancho acotado
+            inputValor.type          = 'text';
+            inputValor.name          = pref + '-valor';
+            inputValor.id            = 'id_' + pref + '-valor';
+            inputValor.value         = '';
             inputValor.style.cssText = 'width:80px;max-width:100%;font-size:13px;';
-            if (esExcluida) {
-                inputValor.disabled      = true;
-                inputValor.style.cssText += 'pointer-events:none;';
-            }
+            if (esExcluida) inputValor.disabled = true;
             tdValor.appendChild(inputValor);
         }
         tr.appendChild(tdValor);
 
-        // ── Columna: unidad ─────────────────────────────────────────────────
-        // Fix B: en lugar de un <input readonly> que se ve como caja de texto,
-        // usamos un <span> de solo lectura + un <input hidden> para el POST.
-        // Así la unidad se muestra como texto plano sin borde ni fondo.
+        // ── Columna: unidad ────────────────────────────────────────────────
         var tdUnidad = document.createElement('td');
         tdUnidad.className           = 'field-unidad';
         tdUnidad.style.verticalAlign = 'middle';
-
         var unidadVal = (tipo === 'CUALITATIVO') ? 'N/A' : (unidad || '');
-
-        // Input oculto — lo necesita el POST de Django
         var inputUnidadHidden = document.createElement('input');
         inputUnidadHidden.type  = 'hidden';
         inputUnidadHidden.name  = pref + '-unidad';
         inputUnidadHidden.id    = 'id_' + pref + '-unidad';
         inputUnidadHidden.value = unidadVal;
         tdUnidad.appendChild(inputUnidadHidden);
-
-        // Span visible — se ve como texto normal, sin caja
         var spanUnidad = document.createElement('span');
         spanUnidad.textContent  = unidadVal;
-        spanUnidad.style.cssText =
-            'font-size:13px;color:' +
-            (tipo === 'CUALITATIVO' ? '#999' : 'inherit') + ';' +
-            (tipo === 'CUALITATIVO' ? 'font-style:italic;' : '');
-        if (tipo === 'CUALITATIVO') {
-            spanUnidad.title = 'No aplica para propiedades cualitativas';
-        }
+        spanUnidad.style.cssText = 'font-size:13px;color:' +
+            (tipo === 'CUALITATIVO' ? '#999;font-style:italic;' : 'inherit;');
+        if (tipo === 'CUALITATIVO') spanUnidad.title = 'No aplica para propiedades cualitativas';
         tdUnidad.appendChild(spanUnidad);
         tr.appendChild(tdUnidad);
 
-        // ── Columna: referencia / opciones ──────────────────────────
+        // ── Columna: referencia / opciones ─────────────────────────────────
         var tdRef = document.createElement('td');
         tdRef.className = 'field-col_intervalo_referencia';
         tdRef.style.cssText = 'vertical-align:middle;font-size:12px;color:#555;';
-
         if (tipo === 'CUALITATIVO' && opciones) {
             tdRef.textContent = opciones.split(',').map(function (o) { return o.trim(); }).join(' / ');
-        } else if (
-            tipo === 'CUANTITATIVO' &&
-            valorMin !== null && valorMin !== undefined &&
-            valorMax !== null && valorMax !== undefined
-        ) {
-            tdRef.textContent = valorMin + ' – ' + valorMax + (unidad ? ' ' + unidad : '');
+        } else if (tipo === 'CUANTITATIVO' && valorMin !== null && valorMin !== undefined &&
+                   valorMax !== null && valorMax !== undefined) {
+            tdRef.textContent = valorMin + ' \u2013 ' + valorMax + (unidad ? ' ' + unidad : '');
         } else {
             tdRef.textContent = '-';
         }
         tr.appendChild(tdRef);
 
-        // ── Columna: estado del valor ───────────────────────────────
+        // ── Columna: estado del valor ───────────────────────────────────────
         var tdEstado = document.createElement('td');
         tdEstado.className           = 'field-col_valor_coloreado';
         tdEstado.style.verticalAlign = 'middle';
         tdEstado.textContent         = '';
         tr.appendChild(tdEstado);
 
-        // ── Columna: DELETE checkbox ────────────────────────────────
+        // ── Columna: DELETE ─────────────────────────────────────────────────
         var tdDel = document.createElement('td');
         tdDel.className = 'delete';
         if (!esExcluida) {
@@ -370,14 +582,7 @@
     }
 
     // -------------------------------------------------------
-    // RENDERIZAR TABLA COMPLETA
-    // -------------------------------------------------------
-
-    // -------------------------------------------------------
     // PRESERVAR VALORES ESCRITOS POR EL USUARIO
-    // Cuando se agrega/quita una propiedad extra, renderizarTablaCompleta()
-    // reconstruye toda la tabla. Sin estas funciones los valores ya escritos
-    // se pierden porque los inputs se reemplazan por nuevos vacíos.
     // -------------------------------------------------------
 
     function capturarValoresActuales() {
@@ -407,30 +612,26 @@
         });
     }
 
+    // -------------------------------------------------------
+    // RENDERIZAR TABLA COMPLETA
+    // -------------------------------------------------------
+
     function renderizarTablaCompleta() {
         var tbody = getTbodyInline();
         if (!tbody || debeBloquearPrecarga()) return;
 
-        // Guardar valores escritos ANTES de reconstruir la tabla
         var valoresGuardados = capturarValoresActuales();
-
         limpiarFilasSinPk();
-
         var index = tbody.querySelectorAll('tr.dynamic-' + PREFIX).length;
 
-        // 1. Propiedades base NO excluidas
         _propiedadesBase.forEach(function (prop) {
             if (!_excluidasSeleccionadas[prop.nombre_propiedad]) {
                 tbody.appendChild(construirFila(index++, prop, false, false));
             }
         });
-
-        // 2. Propiedades extra
         Object.keys(_extrasSeleccionadas).forEach(function (id) {
             tbody.appendChild(construirFila(index++, _extrasSeleccionadas[id], true, false));
         });
-
-        // 3. Excluidas al final en gris
         _propiedadesBase.forEach(function (prop) {
             if (_excluidasSeleccionadas[prop.nombre_propiedad]) {
                 tbody.appendChild(construirFila(index++, prop, false, true));
@@ -439,20 +640,15 @@
 
         recalcularTotalForms();
         actualizarHiddens();
-
-        // Restaurar los valores que el usuario ya había escrito
         restaurarValores(valoresGuardados);
     }
 
-    // -------------------------------------------------------
+    // ═══════════════════════════════════════════════════════════════════════
     // SECCIÓN EXTRAS
-    // FIX v16: usar insertAdjacentElement('afterend') sobre
-    // #resultados-group en lugar de parentNode.insertBefore()
-    // -------------------------------------------------------
+    // ═══════════════════════════════════════════════════════════════════════
 
     function crearSeccionExtras() {
         if (document.getElementById('_seccion_extras')) return;
-
         var inlineGroup = getInlineGroup();
         if (!inlineGroup) return;
 
@@ -467,24 +663,53 @@
             '</div>',
             '<div id="_extras_body" style="display:none;padding:12px;">',
             '<p style="color:#666;font-size:12px;margin:0 0 8px;">',
-            'Propiedades que no pertenecen a la plantilla seleccionada.</p>',
-            '<div id="_extras_lista" style="max-height:220px;overflow-y:auto;"></div>',
+            'Propiedades que no pertenecen a la plantilla seleccionada. ',
+            'Asigne el <strong>código LOINC</strong> y la <strong>sección</strong> correspondiente.</p>',
+            '<div id="_extras_lista" style="max-height:280px;overflow-y:auto;"></div>',
             '</div>',
         ].join('');
 
-        // FIX: insertAdjacentElement es más confiable que parentNode.insertBefore
-        // porque opera directamente sobre el nodo de referencia, sin depender
-        // de nextSibling (que puede ser un nodo de texto o null en el admin).
         inlineGroup.insertAdjacentElement('afterend', wrapper);
 
         document.getElementById('_chk_extras').addEventListener('change', function () {
             document.getElementById('_extras_body').style.display = this.checked ? '' : 'none';
             if (!this.checked) {
                 _extrasSeleccionadas = {};
+                _extraSeccionMap     = {};
                 document.querySelectorAll('._chk_prop_extra').forEach(function (c) { c.checked = false; });
                 renderizarTablaCompleta();
             }
         });
+    }
+
+    /**
+     * Construye el select de sección para una propiedad extra.
+     * @param {string} propId - ID de la propiedad
+     * @returns {HTMLSelectElement}
+     */
+    function crearSelectSeccion(propId) {
+        var sel = document.createElement('select');
+        sel.id            = '_sec_sel_extra_' + propId;
+        sel.style.cssText = 'font-size:12px;border:1px solid #bbb;border-radius:3px;' +
+            'padding:2px 4px;max-width:170px;cursor:pointer;';
+        sel.title = 'Serie / Sección del reporte PDF';
+
+        var optBlank = document.createElement('option');
+        optBlank.value = ''; optBlank.textContent = '— Sin sección —';
+        sel.appendChild(optBlank);
+
+        SECCIONES_SUGERIDAS.forEach(function (sec) {
+            var opt = document.createElement('option');
+            opt.value = sec; opt.textContent = sec;
+            if (_extraSeccionMap[propId] === sec) opt.selected = true;
+            sel.appendChild(opt);
+        });
+
+        sel.addEventListener('change', function () {
+            _extraSeccionMap[propId] = sel.value;
+            actualizarHiddens();
+        });
+        return sel;
     }
 
     function poblarExtras(propiedadesDisp) {
@@ -498,8 +723,20 @@
         }
 
         propiedadesDisp.forEach(function (prop) {
+            var propIdStr = String(prop.id);
+
+            // ── Fila principal con checkbox + nombre ─────────────────────────
             var row = document.createElement('div');
-            row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:4px 2px;border-bottom:1px solid #f0f0f0;flex-wrap:wrap;';
+            row.style.cssText = [
+                'padding:6px 4px',
+                'border-bottom:1px solid #f0f0f0',
+                'display:flex',
+                'flex-direction:column',
+                'gap:4px',
+            ].join(';');
+
+            var topRow = document.createElement('div');
+            topRow.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;';
 
             var chk = document.createElement('input');
             chk.type      = 'checkbox';
@@ -513,15 +750,31 @@
                 + (prop.unidad ? ' (' + prop.unidad + ')' : '')
                 + (prop.tipo === 'CUALITATIVO' ? ' [Cualitativo]' : '');
 
-            // Zona LOINC: display + botón picker
+            topRow.appendChild(chk);
+            topRow.appendChild(lbl);
+            row.appendChild(topRow);
+
+            // ── Sub-fila con LOINC + Sección (visible solo si está seleccionada) ─
+            var subRow = document.createElement('div');
+            subRow.id            = '_extra_subrow_' + propIdStr;
+            subRow.style.cssText = 'display:' + (_extrasSeleccionadas[prop.id] ? 'flex' : 'none') + ';' +
+                'align-items:center;gap:8px;flex-wrap:wrap;padding-left:24px;';
+
+            // ── Label de sección ─────────────────────────────────────────────
+            var secLabel = document.createElement('label');
+            secLabel.style.cssText = 'font-size:11px;color:#555;margin:0;white-space:nowrap;';
+            secLabel.textContent = '📂 Sección:';
+
+            var selectSec = crearSelectSeccion(propIdStr);
+
+            // ── Zona LOINC ───────────────────────────────────────────────────
             var loincWrap = document.createElement('div');
-            loincWrap.id            = '_loinc_wrap_extra_' + prop.id;
-            loincWrap.style.cssText = 'display:none;align-items:center;gap:4px;margin-left:4px;';
+            loincWrap.id            = '_loinc_wrap_extra_' + propIdStr;
+            loincWrap.style.cssText = 'display:flex;align-items:center;gap:4px;';
 
             var loincDisplay = document.createElement('span');
-            loincDisplay.id = '_loinc_display_extra_' + prop.id;
-            // Inicializar con el estado actual (por si se re-renderiza la lista)
-            var loincEntry = _extraLoincMap[String(prop.id)];
+            loincDisplay.id = '_loinc_display_extra_' + propIdStr;
+            var loincEntry = _extraLoincMap[propIdStr];
             if (loincEntry && loincEntry.loincNum) {
                 loincDisplay.innerHTML =
                     '<span style="color:#1a6fa8;font-weight:600;font-size:12px;font-family:monospace;">' +
@@ -530,7 +783,7 @@
                         ? '<span style="color:#555;font-size:11px;margin-left:4px;">\u2014 ' + escHtml(loincEntry.loincDesc) + '</span>'
                         : '');
             } else {
-                loincDisplay.innerHTML = '<span style="color:#999;font-size:11px;">Sin c\u00F3digo</span>';
+                loincDisplay.innerHTML = '<span style="color:#999;font-size:11px;">Sin c\u00F3digo LOINC</span>';
             }
 
             var loincBtn = document.createElement('button');
@@ -543,43 +796,43 @@
             loincBtn.textContent = '\uD83D\uDD0D LOINC';
             loincBtn.addEventListener('click', function (e) {
                 e.stopPropagation();
-                mostrarExtraLoincPopup(String(prop.id), loincBtn, prop.nombre_propiedad);
+                mostrarExtraLoincPopup(propIdStr, loincBtn, prop.nombre_propiedad);
             });
 
             loincWrap.appendChild(loincDisplay);
             loincWrap.appendChild(loincBtn);
 
+            subRow.appendChild(secLabel);
+            subRow.appendChild(selectSec);
+            subRow.appendChild(loincWrap);
+            row.appendChild(subRow);
+
+            // ── Evento checkbox ─────────────────────────────────────────────
             chk.addEventListener('change', function () {
+                var subRowEl = document.getElementById('_extra_subrow_' + propIdStr);
                 if (this.checked) {
                     _extrasSeleccionadas[prop.id] = prop;
-                    loincWrap.style.display = 'flex';
+                    if (subRowEl) subRowEl.style.display = 'flex';
                 } else {
                     delete _extrasSeleccionadas[prop.id];
-                    delete _extraLoincMap[String(prop.id)];
-                    loincWrap.style.display = 'none';
+                    delete _extraLoincMap[propIdStr];
+                    delete _extraSeccionMap[propIdStr];
+                    if (subRowEl) subRowEl.style.display = 'none';
                 }
                 renderizarTablaCompleta();
                 actualizarHiddens();
             });
 
-            row.appendChild(chk);
-            row.appendChild(lbl);
-            row.appendChild(loincWrap);
-            if (_extrasSeleccionadas[prop.id]) loincWrap.style.display = 'flex';
             lista.appendChild(row);
         });
     }
 
-    // -------------------------------------------------------
+    // ═══════════════════════════════════════════════════════════════════════
     // SECCIÓN EXCLUIR
-    // FIX v16: insertar con insertAdjacentElement('afterend')
-    // sobre #resultados-group, y ANTES de _seccion_extras si
-    // ya existe, usando insertAdjacentElement('beforebegin').
-    // -------------------------------------------------------
+    // ═══════════════════════════════════════════════════════════════════════
 
     function crearSeccionExcluir() {
         if (document.getElementById('_seccion_excluir')) return;
-
         var inlineGroup = getInlineGroup();
         if (!inlineGroup) return;
 
@@ -599,8 +852,6 @@
             '</div>',
         ].join('');
 
-        // Si ya existe _seccion_extras, insertar ANTES de ella.
-        // Si no existe todavía, insertar justo después de #resultados-group.
         var seccionExtras = document.getElementById('_seccion_extras');
         if (seccionExtras) {
             seccionExtras.insertAdjacentElement('beforebegin', wrapper);
@@ -654,7 +905,6 @@
             row.appendChild(chk);
             row.appendChild(lbl);
 
-            // Mostrar LOINC de la plantilla como etiqueta de solo lectura (informativa)
             if (prop.loinc_num) {
                 var loincTag = document.createElement('span');
                 loincTag.title         = prop.loinc_desc || prop.loinc_num;
@@ -670,9 +920,9 @@
         });
     }
 
-    // -------------------------------------------------------
+    // ═══════════════════════════════════════════════════════════════════════
     // HIDDENS para el submit
-    // -------------------------------------------------------
+    // ═══════════════════════════════════════════════════════════════════════
 
     function getForm() {
         return document.querySelector('#content-main form') ||
@@ -695,21 +945,30 @@
 
     function actualizarHiddens() {
         var extraIds = Object.keys(_extrasSeleccionadas);
-        setHidden('_hidden_extras',      '_propiedades_extra_ids',         extraIds.join(','));
-        setHidden('_hidden_excluidas',   '_propiedades_excluidas_nombres', Object.keys(_excluidasSeleccionadas).join(','));
-        // LOINCs en el mismo orden que los ids de extras (array paralelo)
+
+        setHidden('_hidden_extras',      '_propiedades_extra_ids',
+            extraIds.join(','));
+
+        setHidden('_hidden_excluidas',   '_propiedades_excluidas_nombres',
+            Object.keys(_excluidasSeleccionadas).join(','));
+
+        // LOINCs paralelos a los ids de extras
         var loincIds = extraIds.map(function (id) {
             return (_extraLoincMap[id] && _extraLoincMap[id].loincId)
-                ? _extraLoincMap[id].loincId
-                : '';
+                ? _extraLoincMap[id].loincId : '';
         });
         setHidden('_hidden_extras_loinc', '_propiedades_extra_loinc_ids', loincIds.join(','));
+
+        // ← NUEVO: secciones paralelas a los ids de extras
+        var secciones = extraIds.map(function (id) {
+            return _extraSeccionMap[id] || '';
+        });
+        setHidden('_hidden_extras_secciones', '_propiedades_extra_secciones', secciones.join(','));
     }
 
-    // -------------------------------------------------------
+    // ═══════════════════════════════════════════════════════════════════════
     // LOINC PICKER PARA PROPIEDADES EXTRA
-    // Popup flotante con búsqueda contextual (muestra + método).
-    // -------------------------------------------------------
+    // ═══════════════════════════════════════════════════════════════════════
 
     var _extraLoincPopup    = null;
     var _extraLoincDebounce = null;
@@ -843,7 +1102,7 @@
         fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
             .then(function (r) { return r.json(); })
             .then(function (data) {
-                if (_extraLoincPropId !== propId) return; // respuesta stale
+                if (_extraLoincPropId !== propId) return;
                 resEl = document.getElementById('pp-extra-loinc-results');
                 if (!resEl) return;
                 if (!data.results || data.results.length === 0) {
@@ -877,7 +1136,7 @@
                         cerrarExtraLoincPopup();
                         actualizarHiddens();
                         actualizarDisplayLoincExtra(propId);
-                        renderizarTablaCompleta(); // refresca la fila de la tabla inline
+                        renderizarTablaCompleta();
                     });
                     resEl.appendChild(row);
                 });
@@ -919,14 +1178,14 @@
         } else {
             var empty = document.createElement('span');
             empty.style.cssText = 'color:#999;font-size:11px;';
-            empty.textContent   = 'Sin c\u00F3digo';
+            empty.textContent   = 'Sin c\u00F3digo LOINC';
             displayEl.appendChild(empty);
         }
     }
 
-    // -------------------------------------------------------
+    // ═══════════════════════════════════════════════════════════════════════
     // CONSULTAS AL SERVIDOR
-    // -------------------------------------------------------
+    // ═══════════════════════════════════════════════════════════════════════
 
     function getSelectValue(id) {
         var el = document.getElementById(id);
@@ -958,23 +1217,28 @@
         .catch(function () { callback('', [], []); });
     }
 
-    // -------------------------------------------------------
+    // ═══════════════════════════════════════════════════════════════════════
     // LÓGICA CENTRAL
-    // -------------------------------------------------------
+    // ═══════════════════════════════════════════════════════════════════════
 
     function onSeleccionCambio() {
         if (debeBloquearPrecarga()) return;
 
         _extrasSeleccionadas    = {};
         _excluidasSeleccionadas = {};
+        _extraSeccionMap        = {};
 
         var plantillaId = getSelectValue('id_plantilla');
+
+        // Pre-llenar y bloquear muestra/método desde la plantilla
+        if (plantillaId) {
+            prefillYBloquearMuestraMetodo(plantillaId);
+        }
 
         consultarPlantilla(plantillaId, function (tipoFormato, propiedadesBase, propiedadesDisp) {
             mostrarOcultarImagenes(tipoFormato);
             _propiedadesBase = propiedadesBase;
 
-            // Resetear controles si ya existían de una selección anterior
             ['_chk_extras', '_chk_excluir'].forEach(function (id) {
                 var el = document.getElementById(id);
                 if (el) el.checked = false;
@@ -985,9 +1249,6 @@
             });
 
             if (propiedadesBase.length > 0) {
-                // Orden de llamada: primero Extras (se inserta afterend de inlineGroup),
-                // luego Excluir (se inserta beforebegin de _seccion_extras).
-                // Resultado en DOM: [inlineGroup][_seccion_excluir][_seccion_extras]
                 crearSeccionExtras();
                 crearSeccionExcluir();
                 poblarExcluir(propiedadesBase);
@@ -1012,27 +1273,18 @@
 
     // -------------------------------------------------------
     // BIND SELECT2 + FALLBACK NATIVO
-    // FIX v16: el bindSelect2 original fallaba porque Select2
-    // ya estaba inicializado antes de que el script intentara
-    // engancharse. Ahora usamos tres capas de detección:
-    //   1. select2:select / select2:clear  (Select2 events)
-    //   2. change nativo en el <select> subyacente
-    //   3. MutationObserver sobre el span de Select2 como
-    //      último recurso si los eventos no disparan
     // -------------------------------------------------------
 
     function bindSelect2(selectId, handler) {
         var intentos = 0;
 
         function enganchar() {
-            // Capa 1: eventos Select2 vía django.jQuery
             if (window.django && window.django.jQuery) {
                 var $sel = window.django.jQuery('#' + selectId);
                 if ($sel.length) {
                     $sel.on('select2:select select2:clear change', handler);
                 }
             }
-            // Capa 2: evento change nativo en el <select> real
             var selectEl = document.getElementById(selectId);
             if (selectEl) {
                 selectEl.addEventListener('change', handler);
@@ -1050,19 +1302,15 @@
         intentar();
     }
 
-    // -------------------------------------------------------
+    // ═══════════════════════════════════════════════════════════════════════
     // INIT
-    // -------------------------------------------------------
+    // ═══════════════════════════════════════════════════════════════════════
 
     function init() {
-        // Ocultar sección imágenes al inicio usando visibility (NO display:none)
-        // para que los <input type="file"> sigan en el DOM y se envíen al POST.
+        // Ocultar sección imágenes al inicio
         mostrarOcultarImagenes('');
 
-        // ── BOTÓN LOINC.org ───────────────────────────────────────────────
-        // Inyectar enlace directo a LOINC.org en el encabezado del inline
-        // de resultados. Útil para buscar un código LOINC específico sin
-        // tener que salir de la página.
+        // ── Botón LOINC.org en el encabezado del inline ────────────────────
         (function agregarBotonLoinc() {
             var grupo = getInlineGroup();
             if (!grupo) return;
@@ -1084,6 +1332,11 @@
             h2.appendChild(a);
         })();
 
+        // ── Setup de bloqueo de muestra/método ────────────────────────────
+        // Se llama aquí para ambos modos (alta y edición).
+        setupMuestraMetodoCampos();
+
+        // ── Bindings de selects ────────────────────────────────────────────
         bindSelect2('id_plantilla', function () {
             if (!debeBloquearPrecarga()) onSeleccionCambio();
         });
@@ -1091,13 +1344,22 @@
             if (!debeBloquearPrecarga()) onSeleccionCambio();
         });
 
-        // Carga inicial: esperar a que Select2 haya renderizado
-        // su valor antes de leerlo (800ms es más seguro que 400ms)
         setTimeout(function () {
             var plantillaId = getSelectValue('id_plantilla');
             if (!plantillaId) return;
             if (debeBloquearPrecarga()) {
                 onCargaInicialEdicion(plantillaId);
+                // En modo edición, los campos ya tienen valor desde Django.
+                // Simplemente aplicar el bloqueo visual con los valores actuales.
+                var inputMuestra = document.getElementById('id_tipo_muestra');
+                var inputMetodo  = document.getElementById('id_metodo');
+                if (inputMuestra) _templateMuestra = inputMuestra.value;
+                if (inputMetodo)  _templateMetodo  = inputMetodo.value;
+                _aplicarBloqueoVisual(inputMuestra, inputMetodo);
+                var badgeTexto = document.getElementById('_mm_badge_texto');
+                if (badgeTexto && (_templateMuestra || _templateMetodo)) {
+                    badgeTexto.textContent = 'Valores actuales del análisis';
+                }
             } else {
                 onSeleccionCambio();
             }

@@ -545,7 +545,7 @@ class PlantillaPropiedadInline(admin.TabularInline):
     form                = PlantillaPropiedadForm
     extra               = 1
     autocomplete_fields = ('propiedad', 'loinc_code')
-    fields              = ('propiedad', 'loinc_code', 'seccion', 'orden')
+    fields              = ('propiedad', 'loinc_code', 'seccion', 'orden_seccion', 'orden')
 
 
 # =============================================================================
@@ -630,7 +630,7 @@ class PropiedadAdmin(admin.ModelAdmin):
 @admin.register(PlantillaPropiedad)
 class PlantillaPropiedadAdmin(admin.ModelAdmin):
     form          = PlantillaPropiedadForm
-    list_display  = ('plantilla', 'propiedad', 'loinc_code', 'seccion', 'orden')
+    list_display  = ('plantilla', 'propiedad', 'loinc_code', 'seccion', 'orden_seccion', 'orden')
     list_filter   = ('plantilla', 'seccion')
     search_fields = ('plantilla__titulo', 'propiedad__nombre_propiedad', 'loinc_code__loinc_num', 'seccion')
     autocomplete_fields = ('plantilla', 'propiedad', 'loinc_code')
@@ -1334,28 +1334,40 @@ class AnalisisAdmin(admin.ModelAdmin):
         super().save_model(request, obj, form, change)
 
         if not change:
+            # ── Leer ids de propiedades extra ────────────────────────────────
             ids_extra_raw = request.POST.get('_propiedades_extra_ids', '')
             ids_extra = [
                 int(i) for i in ids_extra_raw.split(',')
                 if i.strip().isdigit()
             ]
 
+            # ── Leer propiedades excluidas ───────────────────────────────────
             nombres_excluidas_raw = request.POST.get('_propiedades_excluidas_nombres', '')
             nombres_excluidas = [
                 n.strip() for n in nombres_excluidas_raw.split(',')
                 if n.strip()
             ]
 
-            # LOINCs asignados a las propiedades extra desde el picker JS
-            loinc_extra_raw = request.POST.get('_propiedades_extra_loinc_ids', '')
+            # ── LOINCs paralelos a ids_extra ─────────────────────────────────
+            # El JS envía _propiedades_extra_loinc_ids como array paralelo.
+            loinc_extra_raw  = request.POST.get('_propiedades_extra_loinc_ids', '')
             loinc_extra_list = [l.strip() for l in loinc_extra_raw.split(',')]
-            # Construir dict propId → loincId para usarlo al crear ResultadoAnalisis
-            extra_loinc_map = {}
+            extra_loinc_map  = {}
             for i, prop_id in enumerate(ids_extra):
                 loinc_str = loinc_extra_list[i] if i < len(loinc_extra_list) else ''
                 if loinc_str.isdigit():
                     extra_loinc_map[prop_id] = int(loinc_str)
 
+            # ── Secciones paralelas a ids_extra ──────────────────────────────
+            # El JS envía _propiedades_extra_secciones como array paralelo.
+            secciones_extra_raw  = request.POST.get('_propiedades_extra_secciones', '').strip()
+            secciones_extra_list = [s.strip() for s in secciones_extra_raw.split(',')]
+            extra_seccion_map    = {}
+            for i, prop_id in enumerate(ids_extra):
+                sec = secciones_extra_list[i] if i < len(secciones_extra_list) else ''
+                extra_seccion_map[prop_id] = sec
+
+            # ── Persistir M2M ────────────────────────────────────────────────
             if ids_extra:
                 obj.propiedades_extra.set(Propiedad.objects.filter(id__in=ids_extra))
 
@@ -1366,7 +1378,13 @@ class AnalisisAdmin(admin.ModelAdmin):
 
             paciente      = obj.paciente
             edad_meses    = paciente.edad_en_meses
-            ids_extra_set = set(ids_extra)  # props añadidas explícitamente por el usuario
+            ids_extra_set = set(ids_extra)
+
+            # Mapa propiedad_id → PlantillaPropiedad (una sola consulta)
+            pp_map = {}
+            if obj.plantilla:
+                for pp in PlantillaPropiedad.objects.filter(plantilla=obj.plantilla):
+                    pp_map[pp.propiedad_id] = pp
 
             for propiedad in obj.get_propiedades_efectivas():
                 es_extra         = propiedad.pk in ids_extra_set
@@ -1386,30 +1404,50 @@ class AnalisisAdmin(admin.ModelAdmin):
                     # para este paciente: el usuario las agregó de forma explícita.
                     crear = intervalo_match or es_extra
 
-                if crear:
-                    try:
-                        pp    = PlantillaPropiedad.objects.get(plantilla=obj.plantilla, propiedad=propiedad)
-                        loinc = pp.loinc_code
-                    except (PlantillaPropiedad.DoesNotExist, AttributeError):
-                        # Propiedad extra: buscar LOINC en el mapa enviado por el picker JS
-                        loinc_id_extra = extra_loinc_map.get(propiedad.pk)
-                        loinc = LoincCode.objects.filter(pk=loinc_id_extra).first() if loinc_id_extra else None
+                if not crear:
+                    continue
 
-                    ResultadoAnalisis.objects.get_or_create(
-                        analisis=obj,
-                        propiedad=propiedad,
-                        defaults={
-                            'loinc_code':       loinc,
-                            'nombre_propiedad': propiedad.nombre_propiedad,
-                            'valor':            '',
-                            'unidad':           propiedad.unidad,
-                        }
-                    )
+                pp = pp_map.get(propiedad.pk)
+
+                if pp:
+                    # Propiedad de la plantilla — tomar LOINC, sección y orden
+                    # directamente desde PlantillaPropiedad (fuente de verdad).
+                    loinc         = pp.loinc_code
+                    seccion_prop  = pp.seccion       or ''
+                    orden_seccion = pp.orden_seccion
+                else:
+                    # Propiedad EXTRA — usar los mapas construidos desde el picker JS.
+                    loinc_id_extra = extra_loinc_map.get(propiedad.pk)
+                    loinc          = LoincCode.objects.filter(pk=loinc_id_extra).first() if loinc_id_extra else None
+                    seccion_prop   = extra_seccion_map.get(propiedad.pk, '')
+                    # Las props extra van al final del reporte (9999) a menos que
+                    # el JS asigne la misma sección que una sección de la plantilla.
+                    # En ese caso el PDF las agrupa automáticamente por nombre.
+                    orden_seccion  = 9999
+
+                ResultadoAnalisis.objects.get_or_create(
+                    analisis=obj,
+                    propiedad=propiedad,
+                    defaults={
+                        'loinc_code':       loinc,
+                        'nombre_propiedad': propiedad.nombre_propiedad,
+                        'valor':            '',
+                        'unidad':           propiedad.unidad,
+                        'seccion':          seccion_prop,
+                        'orden_seccion':    orden_seccion,
+                    }
+                )
 
     def save_formset(self, request, form, formset, change):
         if formset.model.__name__ == 'ResultadoAnalisis' and not change:
             analisis    = form.instance
             total_forms = int(request.POST.get('resultados-TOTAL_FORMS', 0))
+
+            # Mapa propiedad_id → PlantillaPropiedad para no repetir queries
+            pp_map = {}
+            if analisis.plantilla:
+                for pp in PlantillaPropiedad.objects.filter(plantilla=analisis.plantilla):
+                    pp_map[pp.propiedad_id] = pp
 
             for i in range(total_forms):
                 prefix = f'resultados-{i}'
@@ -1427,11 +1465,15 @@ class AnalisisAdmin(admin.ModelAdmin):
                 except Propiedad.DoesNotExist:
                     continue
 
-                try:
-                    pp    = PlantillaPropiedad.objects.get(plantilla=analisis.plantilla, propiedad=propiedad_obj)
-                    loinc = pp.loinc_code
-                except (PlantillaPropiedad.DoesNotExist, AttributeError):
-                    loinc = None
+                pp = pp_map.get(propiedad_id)
+                if pp:
+                    loinc         = pp.loinc_code
+                    seccion_prop  = pp.seccion       or ''
+                    orden_seccion = pp.orden_seccion
+                else:
+                    loinc         = None
+                    seccion_prop  = ''
+                    orden_seccion = 9999
 
                 instancia, _ = ResultadoAnalisis.objects.get_or_create(
                     analisis=analisis,
@@ -1441,6 +1483,8 @@ class AnalisisAdmin(admin.ModelAdmin):
                         'nombre_propiedad': propiedad_obj.nombre_propiedad,
                         'valor':            raw_valor,
                         'unidad':           unidad if unidad and unidad != 'N/A' else propiedad_obj.unidad,
+                        'seccion':          seccion_prop,
+                        'orden_seccion':    orden_seccion,
                     }
                 )
 
@@ -1449,6 +1493,10 @@ class AnalisisAdmin(admin.ModelAdmin):
                     instancia.unidad = unidad
                 if not instancia.nombre_propiedad:
                     instancia.nombre_propiedad = propiedad_obj.nombre_propiedad
+                # Actualizar seccion/orden si el registro ya existía y estaban vacíos
+                if not instancia.seccion and seccion_prop:
+                    instancia.seccion       = seccion_prop
+                    instancia.orden_seccion = orden_seccion
                 instancia.save()
 
             formset.new_objects     = []

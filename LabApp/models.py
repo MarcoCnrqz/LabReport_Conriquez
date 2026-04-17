@@ -6,7 +6,7 @@ from django.db.models import Q
 
 from datetime import date
 
-from cloudinary.models import CloudinaryField  # ← igual que logo y firma_digital
+from cloudinary.models import CloudinaryField
 
 
 # =============================================================================
@@ -131,6 +131,7 @@ class LoincCode(models.Model):
     def __str__(self):
         return f"{self.loinc_num} - {self.shortname}"
 
+
 # =============================================================================
 # PROPIEDAD
 # =============================================================================
@@ -233,28 +234,18 @@ class Plantilla(models.Model):
 # PLANTILLA ↔ PROPIEDAD
 # Tabla intermedia con LOINC, serie/sección y orden propios de cada plantilla.
 #
-# NOTA: La sección/serie es ahora un CharField simple en lugar de una FK a una
-# tabla separada. Esto simplifica la interfaz de administración.
-#
-# CORRECCIÓN: Se añade `orden_seccion` para controlar el orden de aparición
-# de las secciones en el reporte PDF de forma explícita e independiente del
-# orden de las propiedades dentro de cada sección.
+# Campos clave:
+# - loinc_code    : LOINC correcto para esta propiedad en el contexto de la plantilla.
+# - seccion       : Nombre de la serie/sección en el reporte (ej. "FÓRMULA ROJA").
+#                   Campo de texto libre con sugerencias en el admin.
+# - orden         : Posición de la propiedad DENTRO de su sección.
+# - orden_seccion : Posición de la SECCIÓN en el reporte global.
+#                   Permite poner Serie Roja=1, Serie Blanca=2, etc.
+#                   Todas las propiedades de la misma sección deben tener
+#                   el mismo valor aquí.
 # =============================================================================
 
 class PlantillaPropiedad(models.Model):
-    """
-    Tabla intermedia entre Plantilla y Propiedad.
-
-    Campos clave:
-    - loinc_code    : LOINC correcto para esta propiedad en el contexto de la plantilla.
-    - seccion       : Nombre de la serie/sección en el reporte (ej. "FÓRMULA ROJA").
-                      Campo de texto libre con sugerencias en el admin.
-    - orden         : Posición de la propiedad DENTRO de su sección.
-    - orden_seccion : Posición de la SECCIÓN en el reporte global.
-                      Permite poner Serie Roja=1, Serie Blanca=2, etc.
-                      Todas las propiedades de la misma sección deben tener
-                      el mismo valor aquí.
-    """
     plantilla  = models.ForeignKey(Plantilla,  on_delete=models.CASCADE, related_name='plantilla_propiedades')
     propiedad  = models.ForeignKey(Propiedad,  on_delete=models.CASCADE, related_name='plantilla_propiedades')
     loinc_code = models.ForeignKey(
@@ -274,7 +265,6 @@ class PlantillaPropiedad(models.Model):
         help_text='Orden de la propiedad DENTRO de su sección.',
     )
 
-    # ── NUEVO CAMPO ──────────────────────────────────────────────────────────
     orden_seccion = models.PositiveSmallIntegerField(
         default=0,
         verbose_name='Orden de sección',
@@ -287,7 +277,6 @@ class PlantillaPropiedad(models.Model):
 
     class Meta:
         unique_together     = ('plantilla', 'propiedad')
-        # Ordenar por orden_seccion primero, luego por orden dentro de la sección
         ordering            = ['orden_seccion', 'orden', 'propiedad__nombre_propiedad']
         verbose_name        = 'Propiedad de plantilla'
         verbose_name_plural = 'Propiedades de plantilla'
@@ -359,6 +348,35 @@ class ResultadoAnalisis(models.Model):
         help_text="Se completa automáticamente desde la FK propiedad al guardar."
     )
 
+    # ── NUEVO: sección/serie a la que pertenece esta propiedad en el reporte ──
+    # Para propiedades de la plantilla se hereda de PlantillaPropiedad.seccion.
+    # Para propiedades extra se asigna desde el picker JS al crear el análisis.
+    seccion = models.CharField(
+        max_length=200,
+        blank=True,
+        null=True,
+        verbose_name='Serie / Sección',
+        help_text=(
+            'Agrupación de la propiedad en el reporte PDF. '
+            'Se hereda de PlantillaPropiedad para props de plantilla; '
+            'se asigna manualmente para propiedades extra.'
+        ),
+    )
+
+    # ── NUEVO: orden de la sección en el reporte —————————————————————————————
+    # Para props de plantilla se hereda de PlantillaPropiedad.orden_seccion.
+    # Para props extra el JS lo envía como 9999 (al final) si no se especifica.
+    # Permite que el PDF ordene secciones sin depender del dict hardcodeado.
+    orden_seccion = models.PositiveSmallIntegerField(
+        default=9999,
+        verbose_name='Orden de sección',
+        help_text=(
+            'Orden de aparición de la sección en el PDF. '
+            'Valor menor = aparece antes. '
+            'Se hereda de PlantillaPropiedad o se asigna al crear el análisis.'
+        ),
+    )
+
     def save(self, *args, **kwargs):
         force_update = kwargs.pop('force_update_nombre', False)
         if (not self.nombre_propiedad or force_update) and self.propiedad_id:
@@ -374,6 +392,8 @@ class ResultadoAnalisis(models.Model):
 
     class Meta:
         unique_together = ('analisis', 'propiedad')
+        # Ordenar por orden_seccion, luego nombre para consistencia en el admin
+        ordering = ['orden_seccion', 'nombre_propiedad']
 
 
 # =============================================================================
@@ -389,6 +409,9 @@ def crear_resultados_predeterminados(sender, instance, created, **kwargs):
       - skip_signal=True  → viene del admin de Django (el admin los crea manualmente)
       - _desde_api=True   → viene del serializer/API REST (el cliente manda los
                             resultados explícitamente, no hay que auto-generarlos)
+
+    Ahora también propaga seccion y orden_seccion desde PlantillaPropiedad
+    al ResultadoAnalisis para que el PDF pueda ordenar correctamente.
     """
     if getattr(instance, 'skip_signal', False):
         return
@@ -401,6 +424,12 @@ def crear_resultados_predeterminados(sender, instance, created, **kwargs):
 
     paciente   = instance.paciente
     edad_meses = paciente.edad_en_meses
+
+    # Construir mapa propiedad_id → PlantillaPropiedad de una sola consulta
+    pp_map = {
+        pp.propiedad_id: pp
+        for pp in PlantillaPropiedad.objects.filter(plantilla=instance.plantilla)
+    }
 
     for propiedad in instance.plantilla.propiedades.all():
         total_intervalos = propiedad.intervalos.count()
@@ -417,11 +446,10 @@ def crear_resultados_predeterminados(sender, instance, created, **kwargs):
             ).exists()
 
         if crear:
-            try:
-                pp    = PlantillaPropiedad.objects.get(plantilla=instance.plantilla, propiedad=propiedad)
-                loinc = pp.loinc_code
-            except PlantillaPropiedad.DoesNotExist:
-                loinc = None
+            pp            = pp_map.get(propiedad.pk)
+            loinc         = pp.loinc_code    if pp else None
+            seccion       = pp.seccion       if pp else ''
+            orden_seccion = pp.orden_seccion if pp else 9999
 
             ResultadoAnalisis.objects.get_or_create(
                 analisis=instance,
@@ -431,5 +459,7 @@ def crear_resultados_predeterminados(sender, instance, created, **kwargs):
                     'nombre_propiedad': propiedad.nombre_propiedad,
                     'valor':            '',
                     'unidad':           propiedad.unidad,
+                    'seccion':          seccion or '',
+                    'orden_seccion':    orden_seccion,
                 }
             )

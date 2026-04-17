@@ -77,12 +77,6 @@ def jwt_requerido(view_func):
     Decorador para vistas basadas en funcion (api_view).
     Valida el header: Authorization: Bearer <access_token>
     Si es valido, inyecta request.usuario_jwt_id con el id del usuario.
-
-    Uso:
-        @api_view(['GET'])
-        @jwt_requerido
-        def mi_vista(request):
-            usuario_id = request.usuario_jwt_id
     """
     @wraps(view_func)
     def wrapper(request, *args, **kwargs):
@@ -108,7 +102,6 @@ def jwt_requerido(view_func):
         request.usuario_jwt_id = payload['user_id']
         return view_func(request, *args, **kwargs)
     return wrapper
-
 
 
 # ======================================================
@@ -285,7 +278,7 @@ def login_api(request):
     if not usuario.check_password(password):
         return Response({"error": "Credenciales incorrectas"}, status=status.HTTP_401_UNAUTHORIZED)
 
-    data         = UsuarioLoginResponseSerializer(usuario).data
+    data          = UsuarioLoginResponseSerializer(usuario).data
     access_token  = _jwt_crear_token(usuario.id, 'access')
     refresh_token = _jwt_crear_token(usuario.id, 'refresh')
 
@@ -333,7 +326,6 @@ def refresh_token_api(request):
 @api_view(['GET'])
 @jwt_requerido
 def mi_laboratorio_api(request):
-    # El decorador @jwt_requerido inyecta request.usuario_jwt_id
     usuario_id = request.usuario_jwt_id
 
     try:
@@ -351,15 +343,16 @@ def mi_laboratorio_api(request):
 
 
 # ======================================================
-# PRIORIDAD DE SECCIONES PARA EL PDF
+# PRIORIDAD DE SECCIONES PARA EL PDF (fallback)
 # ======================================================
 #
-# Capa 1 de ordenamiento: asigna un número de prioridad a cada sección conocida.
-# Las secciones con número menor aparecen primero en el reporte PDF.
-# Secciones no listadas aquí caen en el fallback alfabético (prioridad 9999).
+# Se usa ÚNICAMENTE como fallback cuando ResultadoAnalisis.orden_seccion
+# no está disponible (p. ej. análisis creados antes de la migración que
+# agregó ese campo).
 #
-# Para agregar o reordenar secciones, edita solo este dict — no hay que tocar
-# nada más en el código.
+# Para análisis nuevos, el orden viene directamente de
+# ResultadoAnalisis.orden_seccion, que se hereda de
+# PlantillaPropiedad.orden_seccion o se asigna desde el picker JS.
 #
 PRIORIDAD_SECCIONES = {
     'FÓRMULA ROJA':                   1,
@@ -383,15 +376,15 @@ PRIORIDAD_SECCIONES = {
 }
 
 
-def _prioridad_seccion(nombre_seccion: str) -> tuple:
+def _prioridad_seccion_fallback(nombre_seccion: str) -> tuple:
     """
-    Devuelve (prioridad_numerica, nombre_seccion) para ordenar secciones.
+    Fallback de ordenamiento por nombre de sección.
+    Se usa solo cuando orden_seccion == 9999 (valor por defecto/desconocido).
 
-    Capa 1: busca el nombre en PRIORIDAD_SECCIONES (insensible a mayúsculas/espacios).
-    Capa 2 (fallback): si la sección no está en el dict, usa prioridad 9999
-                       y ordena alfabéticamente entre las desconocidas.
+    Capa 1: busca el nombre en PRIORIDAD_SECCIONES (insensible a mayúsculas).
+    Capa 2: si no está en el dict, ordena alfabéticamente (prioridad 9999).
     """
-    clave = nombre_seccion.strip().upper()
+    clave     = nombre_seccion.strip().upper()
     prioridad = PRIORIDAD_SECCIONES.get(clave, 9999)
     return (prioridad, nombre_seccion)
 
@@ -401,6 +394,19 @@ def _prioridad_seccion(nombre_seccion: str) -> tuple:
 # ======================================================
 
 def _construir_detalles_analisis(analisis):
+    """
+    Construye el diccionario de datos que se pasa a generar_pdf_reporte().
+
+    Orden de secciones (de mayor a menor prioridad):
+      1. ResultadoAnalisis.orden_seccion  — valor guardado al crear el análisis,
+         heredado de PlantillaPropiedad.orden_seccion o asignado por el picker JS.
+      2. PRIORIDAD_SECCIONES (fallback)   — dict hardcodeado para análisis
+         creados antes de que existiera el campo orden_seccion.
+
+    Sección de propiedades extra:
+      Se lee desde ResultadoAnalisis.seccion (guardado por el admin al crear
+      el análisis desde el picker JS). Ya no se pierde la sección al guardar.
+    """
     paciente    = analisis.paciente
     laboratorio = paciente.laboratorio if hasattr(paciente, 'laboratorio') else None
     quimico     = analisis.creado_por
@@ -418,24 +424,24 @@ def _construir_detalles_analisis(analisis):
     ids_excluidos = analisis.propiedades_excluidas.values_list('id', flat=True)
     resultados_qs = analisis.resultados.exclude(propiedad_id__in=ids_excluidos)
 
-    # ── Construir mapa propiedad → sección ───────────────────────────────────
-    # Fuente de verdad: PlantillaPropiedad, que guarda la sección asignada
-    # explícitamente por el administrador en el picker del admin.
-    prop_seccion_map = {}   # { propiedad_id: nombre_seccion }
-
+    # ── Mapa propiedad_id → PlantillaPropiedad ───────────────────────────────
+    # Fuente de verdad para sección y orden de las propiedades de la PLANTILLA.
+    # Las propiedades EXTRA leen su sección desde ResultadoAnalisis.seccion
+    # (guardado por el admin) — no necesitan buscarse aquí.
+    pp_map = {}
     if analisis.plantilla:
-        pps = (
+        for pp in (
             PlantillaPropiedad.objects
             .filter(plantilla=analisis.plantilla)
+            .select_related('loinc_code')
             .order_by('orden_seccion', 'orden')
-        )
-        for pp in pps:
-            prop_seccion_map[pp.propiedad_id] = pp.seccion or ''
+        ):
+            pp_map[pp.propiedad_id] = pp
 
-    # ── Construir lista de resultados con sección ────────────────────────────
+    # ── Construir lista de resultados con sección y orden ────────────────────
     resultados_raw = []
 
-    for res in resultados_qs:
+    for res in resultados_qs.select_related('propiedad', 'loinc_code'):
         nombre_prop = res.nombre_propiedad
         if not nombre_prop:
             try:
@@ -467,7 +473,28 @@ def _construir_detalles_analisis(analisis):
         except Exception:
             pass
 
-        seccion_nombre = prop_seccion_map.get(res.propiedad_id, '')
+        # ── Resolver sección y orden_seccion ─────────────────────────────────
+        #
+        # Prioridad:
+        #   1. PlantillaPropiedad  → para props de la plantilla (fuente de verdad
+        #      configurada por el admin con el picker).
+        #   2. ResultadoAnalisis.seccion / .orden_seccion → para propiedades extra
+        #      (guardadas por el admin desde el picker JS al crear el análisis)
+        #      y también como respaldo para props de plantilla si el pp_map falla.
+        #
+        pp = pp_map.get(res.propiedad_id)
+        if pp:
+            seccion_nombre = pp.seccion       or ''
+            orden_sec      = pp.orden_seccion
+        else:
+            # Propiedad extra: leer los valores guardados en ResultadoAnalisis
+            seccion_nombre = res.seccion       or ''
+            orden_sec      = res.orden_seccion  # default 9999 si no se asignó
+
+        # Fallback por nombre cuando orden_seccion es 9999 (análisis antiguos
+        # o propiedades extra sin orden explícito).
+        if orden_sec >= 9999 and seccion_nombre:
+            orden_sec = _prioridad_seccion_fallback(seccion_nombre)[0]
 
         resultados_raw.append({
             "nombre_propiedad":      nombre_prop,
@@ -477,34 +504,41 @@ def _construir_detalles_analisis(analisis):
             "valor_max":             valor_max,
             "opciones_cualitativas": propiedad.opciones_cualitativas if propiedad else "",
             "seccion":               seccion_nombre,
+            "orden_seccion":         orden_sec,
             "loinc_num":             res.loinc_code.loinc_num if res.loinc_code else "",
         })
 
     # ── Agrupar y ordenar secciones para el PDF ──────────────────────────────
     #
-    # Orden: PRIORIDAD_SECCIONES (capa 1) → alfabético entre desconocidas (capa 2).
-    # Esto garantiza que FÓRMULA ROJA → FÓRMULA BLANCA → SERIE PLAQUETARIA, etc.,
-    # siempre en el orden correcto sin importar cómo se capturaron los datos.
+    # Orden primario : orden_seccion (campo numérico explícito).
+    # Orden secundario: nombre de sección (alfabético, solo entre empates).
     #
     tiene_secciones = any(r["seccion"] for r in resultados_raw)
 
     if tiene_secciones:
+        # Agrupar por nombre de sección, conservando el orden_seccion mínimo
+        # del grupo (en caso de que haya inconsistencias entre filas).
         grupos = {}
         for r in resultados_raw:
             sec = r["seccion"] or ""
             if sec not in grupos:
                 grupos[sec] = {
-                    "seccion": sec,
-                    "filas":   [],
+                    "seccion":       sec,
+                    "orden_seccion": r["orden_seccion"],
+                    "filas":         [],
                 }
+            else:
+                # Tomar el orden_seccion más bajo del grupo
+                if r["orden_seccion"] < grupos[sec]["orden_seccion"]:
+                    grupos[sec]["orden_seccion"] = r["orden_seccion"]
             grupos[sec]["filas"].append(r)
 
         resultados_agrupados = sorted(
             grupos.values(),
-            key=lambda g: _prioridad_seccion(g["seccion"]),
+            key=lambda g: (g["orden_seccion"], g["seccion"]),
         )
     else:
-        resultados_agrupados = [{"seccion": "", "filas": resultados_raw}]
+        resultados_agrupados = [{"seccion": "", "orden_seccion": 0, "filas": resultados_raw}]
 
     # Tipo de muestra y método: el análisis puede tener valores propios
     # (cuando el médico los modificó), si no, se usan los de la plantilla.
@@ -618,12 +652,13 @@ def plantilla_propiedades(request, plantilla_id):
         except Paciente.DoesNotExist:
             paciente = None
 
-    # Mapa propiedad_id → PlantillaPropiedad para obtener seccion y loinc
+    # Mapa propiedad_id → PlantillaPropiedad para obtener seccion, orden y loinc
     pp_map = {
         pp.propiedad_id: pp
         for pp in PlantillaPropiedad.objects
         .filter(plantilla=plantilla)
         .select_related('loinc_code')
+        .order_by('orden_seccion', 'orden')
     }
 
     propiedades_qs = plantilla.propiedades.all()
@@ -631,8 +666,8 @@ def plantilla_propiedades(request, plantilla_id):
 
     for prop in propiedades_qs:
         pp             = pp_map.get(prop.id)
-        # seccion es ahora un string directo en PlantillaPropiedad
-        seccion_nombre = (pp.seccion or '') if pp else ''
+        seccion_nombre = (pp.seccion       or '') if pp else ''
+        orden_seccion  = (pp.orden_seccion     )  if pp else 9999
 
         if paciente:
             edad_meses = paciente.edad_en_meses
@@ -647,7 +682,7 @@ def plantilla_propiedades(request, plantilla_id):
             if prop.intervalos.exists() and not intervalo:
                 continue
 
-            loinc_num  = (pp.loinc_code.loinc_num  if pp and pp.loinc_code else '')
+            loinc_num  = (pp.loinc_code.loinc_num if pp and pp.loinc_code else '')
             loinc_desc = (pp.loinc_code.shortname  if pp and pp.loinc_code else '')
             resultado.append({
                 'id':                    prop.id,
@@ -658,11 +693,12 @@ def plantilla_propiedades(request, plantilla_id):
                 'valor_min':             intervalo.valor_min if intervalo else None,
                 'valor_max':             intervalo.valor_max if intervalo else None,
                 'seccion_nombre':        seccion_nombre,
+                'orden_seccion':         orden_seccion,
                 'loinc_num':             loinc_num,
                 'loinc_desc':            loinc_desc,
             })
         else:
-            loinc_num  = (pp.loinc_code.loinc_num  if pp and pp.loinc_code else '')
+            loinc_num  = (pp.loinc_code.loinc_num if pp and pp.loinc_code else '')
             loinc_desc = (pp.loinc_code.shortname  if pp and pp.loinc_code else '')
             resultado.append({
                 'id':                    prop.id,
@@ -673,6 +709,7 @@ def plantilla_propiedades(request, plantilla_id):
                 'valor_min':             None,
                 'valor_max':             None,
                 'seccion_nombre':        seccion_nombre,
+                'orden_seccion':         orden_seccion,
                 'loinc_num':             loinc_num,
                 'loinc_desc':            loinc_desc,
             })
@@ -701,7 +738,12 @@ def propiedades_disponibles(request):
         except Paciente.DoesNotExist:
             paciente = None
 
-    propiedades = Propiedad.objects.exclude(id__in=ids_en_plantilla).prefetch_related('intervalos').order_by('nombre_propiedad')
+    propiedades = (
+        Propiedad.objects
+        .exclude(id__in=ids_en_plantilla)
+        .prefetch_related('intervalos')
+        .order_by('nombre_propiedad')
+    )
 
     resultado = []
     for prop in propiedades:
@@ -730,7 +772,9 @@ def propiedades_disponibles(request):
             'opciones_cualitativas': prop.opciones_cualitativas or '',
             'valor_min':             valor_min,
             'valor_max':             valor_max,
-            'loinc_num':             '',   # las props extra no tienen LOINC predefinido; el picker JS lo asigna
+            # Las props extra no tienen LOINC ni sección predefinidos;
+            # el picker JS los asigna al momento de agregar la propiedad.
+            'loinc_num':             '',
             'loinc_desc':            '',
         })
 
