@@ -613,6 +613,23 @@ class PropiedadAdmin(admin.ModelAdmin):
     def get_readonly_fields(self, request, obj=None):
         return ('tipo',) if obj else ()
 
+    def render_change_form(self, request, context, add=False, change=False, form_url='', obj=None):
+        if add:
+            self.message_user(
+                request,
+                (
+                    '💡 Consejo: Si necesitas registrar la misma magnitud con distintas unidades o referencias, '
+                    'diferencia el nombre usando un prefijo de símbolo. '
+                    'Ejemplos: "BASÓFILOS" → valor absoluto (/µL) | "%BASÓFILOS" → porcentaje (%) | '
+                    '"#ERITROCITOS" → conteo (×10⁶/µL). '
+                    'Así ambas propiedades pueden coexistir en la misma plantilla sin conflicto.'
+                ),
+                level='info',
+            )
+        return super().render_change_form(
+            request, context, add=add, change=change, form_url=form_url, obj=obj
+        )
+
     def save_model(self, request, obj, form, change):
         if obj.nombre_propiedad:
             obj.nombre_propiedad = obj.nombre_propiedad.upper()
