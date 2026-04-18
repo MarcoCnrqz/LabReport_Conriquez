@@ -200,6 +200,14 @@ class Plantilla(models.Model):
     texto_justificado_default = models.TextField(blank=True, null=True)
     sincronizado              = models.BooleanField(default=False)
     fecha_modificacion        = models.DateTimeField(auto_now=True)
+    activo                    = models.BooleanField(
+        default=True,
+        verbose_name='Activa',
+        help_text=(
+            'Desactiva la plantilla en lugar de borrarla cuando ya tiene análisis vinculados. '
+            'Las plantillas inactivas no aparecen al crear nuevos análisis.'
+        ),
+    )
 
     tipo_muestra = models.CharField(
         max_length=150, null=True, blank=True,
@@ -288,6 +296,90 @@ class PlantillaPropiedad(models.Model):
 
 
 # =============================================================================
+# ANÁLISIS ↔ PROPIEDAD EXTRA
+# Tabla intermedia con los mismos metadatos que PlantillaPropiedad
+# (loinc_code, seccion, orden, orden_seccion) pero ligada a un análisis
+# concreto. Permite que una propiedad extra tenga su código LOINC correcto
+# y quede asignada a la sección/serie adecuada en el reporte PDF.
+# =============================================================================
+
+class AnalisisPropiedadExtra(models.Model):
+    """
+    Equivalente a PlantillaPropiedad pero para propiedades fuera de la
+    plantilla base. Se crea al agregar una excepción en el análisis.
+
+    Campos clave
+    ────────────
+    loinc_code    : LOINC específico para esta propiedad en este análisis.
+                    Se resuelve mediante loinc_mappings.py en la vista/serializer.
+    seccion       : Serie/sección del reporte (ej. "FÓRMULA ROJA").
+                    Se hereda del picker JS o se asigna manualmente.
+    orden         : Posición de la propiedad DENTRO de su sección.
+    orden_seccion : Posición de la SECCIÓN en el reporte global.
+                    Default 9999 para que las extras queden al final
+                    si no se especifica otro valor.
+    """
+
+    analisis  = models.ForeignKey(
+        'Analisis', on_delete=models.CASCADE,
+        related_name='extra_propiedades',
+    )
+    propiedad = models.ForeignKey(
+        Propiedad, on_delete=models.CASCADE,
+        related_name='analisis_extra_propiedades',
+    )
+    loinc_code = models.ForeignKey(
+        LoincCode, on_delete=models.SET_NULL,
+        null=True, blank=True,
+        help_text=(
+            'Código LOINC específico de esta propiedad en el contexto del análisis. '
+            'Se resuelve con loinc_mappings.py al crear el análisis.'
+        ),
+    )
+
+    seccion = models.CharField(
+        max_length=200,
+        blank=True,
+        null=True,
+        verbose_name='Serie / Sección',
+        help_text=(
+            'Agrupación de la propiedad en el reporte PDF. '
+            'Ej: FÓRMULA ROJA, SERIE PLAQUETARIA. '
+            'Se asigna desde el picker JS al crear el análisis.'
+        ),
+    )
+
+    orden = models.PositiveSmallIntegerField(
+        default=0,
+        help_text='Orden de la propiedad DENTRO de su sección.',
+    )
+
+    orden_seccion = models.PositiveSmallIntegerField(
+        default=9999,
+        verbose_name='Orden de sección',
+        help_text=(
+            'Orden de aparición de la SECCIÓN en el PDF. '
+            'Valor menor = aparece antes. '
+            'Default 9999 coloca las extras al final del reporte.'
+        ),
+    )
+
+    class Meta:
+        unique_together     = ('analisis', 'propiedad')
+        ordering            = ['orden_seccion', 'orden', 'propiedad__nombre_propiedad']
+        verbose_name        = 'Propiedad extra de análisis'
+        verbose_name_plural = 'Propiedades extra de análisis'
+
+    def __str__(self):
+        loinc   = f' [{self.loinc_code.loinc_num}]' if self.loinc_code else ''
+        seccion = f' ({self.seccion})'               if self.seccion    else ''
+        return (
+            f'Análisis {self.analisis_id} → '
+            f'{self.propiedad.nombre_propiedad}{loinc}{seccion}'
+        )
+
+
+# =============================================================================
 # ANÁLISIS
 # =============================================================================
 
@@ -314,8 +406,14 @@ class Analisis(models.Model):
     imagen_resultado1 = CloudinaryField('image', folder='resultados_imagenes', null=True, blank=True)
     imagen_resultado2 = CloudinaryField('image', folder='resultados_imagenes', null=True, blank=True)
 
+    # ── propiedades_extra ahora usa tabla intermedia explícita ──────────────
+    # Esto permite guardar loinc_code, seccion y orden_seccion por propiedad
+    # extra, igual que PlantillaPropiedad lo hace para las props de plantilla.
     propiedades_extra = models.ManyToManyField(
-        Propiedad, related_name='analisis_extra', blank=True,
+        Propiedad,
+        through='AnalisisPropiedadExtra',
+        related_name='analisis_extra',
+        blank=True,
     )
     propiedades_excluidas = models.ManyToManyField(
         Propiedad, related_name='analisis_excluidos', blank=True,
@@ -326,6 +424,17 @@ class Analisis(models.Model):
         extra         = self.propiedades_extra.all()
         excluidas_ids = self.propiedades_excluidas.values_list('id', flat=True)
         return (base | extra).exclude(id__in=excluidas_ids).distinct()
+
+    def get_extra_map(self):
+        """
+        Retorna un dict {propiedad_id: AnalisisPropiedadExtra} para acceso
+        rápido a los metadatos (loinc, seccion, orden_seccion) de las extras.
+        Útil en serializers y en la señal post_save de M2M.
+        """
+        return {
+            ape.propiedad_id: ape
+            for ape in AnalisisPropiedadExtra.objects.filter(analisis=self)
+        }
 
     def __str__(self):
         return f"Análisis {self.id} - {self.paciente.nombre_completo}"
@@ -410,8 +519,8 @@ def crear_resultados_predeterminados(sender, instance, created, **kwargs):
       - _desde_api=True   → viene del serializer/API REST (el cliente manda los
                             resultados explícitamente, no hay que auto-generarlos)
 
-    Ahora también propaga seccion y orden_seccion desde PlantillaPropiedad
-    al ResultadoAnalisis para que el PDF pueda ordenar correctamente.
+    Propaga seccion y orden_seccion desde PlantillaPropiedad al
+    ResultadoAnalisis para que el PDF pueda ordenar correctamente.
     """
     if getattr(instance, 'skip_signal', False):
         return
@@ -463,3 +572,52 @@ def crear_resultados_predeterminados(sender, instance, created, **kwargs):
                     'orden_seccion':    orden_seccion,
                 }
             )
+
+
+@receiver(post_save, sender=AnalisisPropiedadExtra)
+def crear_resultado_para_propiedad_extra(sender, instance, created, **kwargs):
+    """
+    Crea (o actualiza) el ResultadoAnalisis cuando se agrega una propiedad
+    extra a un análisis ya existente.
+
+    Se activa al guardar un AnalisisPropiedadExtra nuevo. Si el resultado
+    ya existía (creado previamente por la API), actualiza loinc_code,
+    seccion y orden_seccion con los valores del through model.
+
+    Se omite si el análisis tiene _desde_api=True para no interferir
+    con el flujo del serializer REST, que maneja los resultados por su cuenta.
+    """
+    analisis = instance.analisis
+
+    if getattr(analisis, '_desde_api', False):
+        return
+
+    propiedad = instance.propiedad
+
+    resultado, result_created = ResultadoAnalisis.objects.get_or_create(
+        analisis=analisis,
+        propiedad=propiedad,
+        defaults={
+            'loinc_code':       instance.loinc_code,
+            'nombre_propiedad': propiedad.nombre_propiedad,
+            'valor':            '',
+            'unidad':           propiedad.unidad,
+            'seccion':          instance.seccion or '',
+            'orden_seccion':    instance.orden_seccion,
+        },
+    )
+
+    if not result_created:
+        # Sincronizar metadatos LOINC/sección aunque el resultado ya existiera
+        campos_a_actualizar = []
+        if resultado.loinc_code != instance.loinc_code:
+            resultado.loinc_code = instance.loinc_code
+            campos_a_actualizar.append('loinc_code')
+        if resultado.seccion != (instance.seccion or ''):
+            resultado.seccion = instance.seccion or ''
+            campos_a_actualizar.append('seccion')
+        if resultado.orden_seccion != instance.orden_seccion:
+            resultado.orden_seccion = instance.orden_seccion
+            campos_a_actualizar.append('orden_seccion')
+        if campos_a_actualizar:
+            resultado.save(update_fields=campos_a_actualizar)
