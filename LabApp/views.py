@@ -182,11 +182,17 @@ class ResultadoAnalisisViewSet(viewsets.ModelViewSet):
 
 
 class PlantillaViewSet(viewsets.ModelViewSet):
-    queryset = Plantilla.objects.prefetch_related(
-        'propiedades',
-        'propiedades__intervalos',
-    ).all()
     serializer_class = PlantillaSerializer
+
+    def get_queryset(self):
+        qs = Plantilla.objects.prefetch_related(
+            'propiedades',
+            'propiedades__intervalos',
+        )
+        # El admin Django ve todas; la app/API solo ve plantillas activas
+        if not (self.request.user and self.request.user.is_staff):
+            qs = qs.filter(activo=True)
+        return qs
 
 
 class PropiedadViewSet(viewsets.ModelViewSet):

@@ -333,10 +333,10 @@ class PlantillaAdminForm(forms.ModelForm):
         fields = '__all__'
 
     class Media:
-        js = ('admin/js/analisis_imagenes_toggle.js',)
-
-
-class AnalisisAdminForm(forms.ModelForm):
+        js = (
+            'admin/js/analisis_imagenes_toggle.js',
+            'admin/js/no_autocomplete.js',
+        )
     tipo_muestra = forms.CharField(
         required=False,
         widget=SugerenciasDropdownWidget(
@@ -363,7 +363,10 @@ class AnalisisAdminForm(forms.ModelForm):
         fields = '__all__'
 
     class Media:
-        js = ('admin/js/analisis_imagenes_toggle.js',)
+        js = (
+            'admin/js/analisis_imagenes_toggle.js',
+            'admin/js/no_autocomplete.js',
+        )
 
 
 class PlantillaPropiedadForm(forms.ModelForm):
@@ -651,7 +654,11 @@ class PropiedadAdmin(admin.ModelAdmin):
     get_plantillas.short_description = "Usada en plantillas"
 
     class Media:
-        js = ('admin/js/propiedad_tipo_toggle.js', 'admin/js/intervalo_toggle.js')
+        js = (
+            'admin/js/propiedad_tipo_toggle.js',
+            'admin/js/intervalo_toggle.js',
+            'admin/js/no_autocomplete.js',
+        )
 
 
 @admin.register(PlantillaPropiedad)
@@ -667,10 +674,49 @@ class PlantillaPropiedadAdmin(admin.ModelAdmin):
 class PlantillaAdmin(admin.ModelAdmin):
     form          = PlantillaAdminForm
     search_fields = ('titulo',)
-    list_display  = ('titulo', 'tipo_formato', 'tipo_muestra', 'metodo',
-                     'loinc_code', 'get_num_propiedades', 'fecha_modificacion')
+    list_display  = (
+        'titulo', 'tipo_formato', 'tipo_muestra', 'metodo',
+        'loinc_code', 'get_num_propiedades', 'badge_activo', 'fecha_modificacion',
+    )
+    list_filter         = ('activo', 'tipo_formato')
+    list_editable       = ()          # el toggle se hace con la acción rápida
     autocomplete_fields = ('loinc_code',)
-    inlines       = [PlantillaPropiedadInline]
+    inlines             = [PlantillaPropiedadInline]
+    actions             = ['activar_plantillas', 'desactivar_plantillas']
+
+    # ── Columna de estado visual ──────────────────────────────────────────────
+    def badge_activo(self, obj):
+        if obj.activo:
+            return format_html(
+                '<span style="'
+                'background:#d4edda;color:#155724;padding:3px 10px;'
+                'border-radius:12px;font-size:12px;font-weight:600;'
+                'border:1px solid #c3e6cb;">'
+                '✔ Activa</span>'
+            )
+        return format_html(
+            '<span style="'
+            'background:#f8d7da;color:#721c24;padding:3px 10px;'
+            'border-radius:12px;font-size:12px;font-weight:600;'
+            'border:1px solid #f5c6cb;">'
+            '✖ Inactiva</span>'
+        )
+    badge_activo.short_description = 'Estado'
+
+    # ── Acciones en lote ──────────────────────────────────────────────────────
+    @admin.action(description='✔ Activar plantillas seleccionadas')
+    def activar_plantillas(self, request, queryset):
+        actualizadas = queryset.update(activo=True)
+        self.message_user(request, f'{actualizadas} plantilla(s) activada(s).')
+
+    @admin.action(description='✖ Desactivar plantillas seleccionadas')
+    def desactivar_plantillas(self, request, queryset):
+        actualizadas = queryset.update(activo=False)
+        self.message_user(
+            request,
+            f'{actualizadas} plantilla(s) desactivada(s). '
+            'Los análisis existentes NO se ven afectados.',
+        )
 
     def get_num_propiedades(self, obj):
         return obj.propiedades.count()
@@ -1080,7 +1126,7 @@ class PlantillaAdmin(admin.ModelAdmin):
     def get_fieldsets(self, request, obj=None):
         base = [
             (None, {
-                'fields': ('titulo', 'tipo_formato', 'loinc_code', 'texto_justificado_default'),
+                'fields': ('titulo', 'tipo_formato', 'activo', 'loinc_code', 'texto_justificado_default'),
             }),
             ('Muestra y Método', {
                 'fields': ('tipo_muestra', 'metodo'),
@@ -1192,7 +1238,10 @@ class PlantillaAdmin(admin.ModelAdmin):
         super().save_formset(request, form, formset, change)
 
     class Media:
-        js  = ('admin/js/plantilla_propiedades_picker.js',)
+        js  = (
+            'admin/js/plantilla_propiedades_picker.js',
+            'admin/js/no_autocomplete.js',
+        )
         css = {'all': ('admin/css/plantilla_propiedades_picker.css',)}
 
 
