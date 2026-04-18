@@ -81,7 +81,36 @@ SECCIONES_SUGERIDAS = [
 
 
 # =============================================================================
-# 2. WIDGET BASE CON DROPDOWN DE SUGERENCIAS
+# 2. MIXIN: DESACTIVAR AUTOCOMPLETE DEL HISTORIAL DEL NAVEGADOR
+# =============================================================================
+
+class NoAutocompleteMixin:
+    """
+    Desactiva el autocomplete del historial del navegador en todos los
+    campos de texto de un ModelAdmin.
+
+    Se aplica vía Python (sin JS externo), por lo que no requiere ningún
+    archivo estático. Respeta los widgets que ya tienen autocomplete
+    configurado (ej. SugerenciasDropdownWidget usa 'new-password').
+    """
+    def get_form(self, request, obj=None, **kwargs):
+        form = super().get_form(request, obj, **kwargs)
+        _WIDGETS_TEXTO = (
+            forms.TextInput,
+            forms.EmailInput,
+            forms.NumberInput,
+            forms.URLInput,
+            forms.Textarea,
+        )
+        for field in form.base_fields.values():
+            w = field.widget
+            if isinstance(w, _WIDGETS_TEXTO):
+                w.attrs.setdefault('autocomplete', 'off')
+        return form
+
+
+# =============================================================================
+# 3. WIDGET BASE CON DROPDOWN DE SUGERENCIAS
 # =============================================================================
 
 class SugerenciasDropdownWidget(forms.TextInput):
@@ -333,10 +362,10 @@ class PlantillaAdminForm(forms.ModelForm):
         fields = '__all__'
 
     class Media:
-        js = (
-            'admin/js/analisis_imagenes_toggle.js',
-            'admin/js/no_autocomplete.js',
-        )
+        js = ('admin/js/analisis_imagenes_toggle.js',)
+
+
+class AnalisisAdminForm(forms.ModelForm):
     tipo_muestra = forms.CharField(
         required=False,
         widget=SugerenciasDropdownWidget(
@@ -363,10 +392,7 @@ class PlantillaAdminForm(forms.ModelForm):
         fields = '__all__'
 
     class Media:
-        js = (
-            'admin/js/analisis_imagenes_toggle.js',
-            'admin/js/no_autocomplete.js',
-        )
+        js = ('admin/js/analisis_imagenes_toggle.js',)
 
 
 class PlantillaPropiedadForm(forms.ModelForm):
@@ -615,7 +641,7 @@ class PacienteAdmin(admin.ModelAdmin):
 
 
 @admin.register(Propiedad)
-class PropiedadAdmin(admin.ModelAdmin):
+class PropiedadAdmin(NoAutocompleteMixin, admin.ModelAdmin):
     form          = PropiedadForm
     list_display  = ('nombre_propiedad', 'tipo', 'unidad', 'get_plantillas')
     list_filter   = ('tipo',)
@@ -657,7 +683,6 @@ class PropiedadAdmin(admin.ModelAdmin):
         js = (
             'admin/js/propiedad_tipo_toggle.js',
             'admin/js/intervalo_toggle.js',
-            'admin/js/no_autocomplete.js',
         )
 
 
@@ -671,7 +696,7 @@ class PlantillaPropiedadAdmin(admin.ModelAdmin):
 
 
 @admin.register(Plantilla)
-class PlantillaAdmin(admin.ModelAdmin):
+class PlantillaAdmin(NoAutocompleteMixin, admin.ModelAdmin):
     form          = PlantillaAdminForm
     search_fields = ('titulo',)
     list_display  = (
@@ -717,6 +742,17 @@ class PlantillaAdmin(admin.ModelAdmin):
             f'{actualizadas} plantilla(s) desactivada(s). '
             'Los análisis existentes NO se ven afectados.',
         )
+
+    def get_search_results(self, request, queryset, search_term):
+        """
+        Filtra plantillas inactivas cuando la búsqueda viene del
+        autocomplete de otro modelo (ej. el campo 'plantilla' en Análisis).
+        En la vista propia de Plantilla se siguen mostrando todas.
+        """
+        queryset, use_distinct = super().get_search_results(request, queryset, search_term)
+        if '/autocomplete/' in request.path:
+            queryset = queryset.filter(activo=True)
+        return queryset, use_distinct
 
     def get_num_propiedades(self, obj):
         return obj.propiedades.count()
@@ -1238,15 +1274,12 @@ class PlantillaAdmin(admin.ModelAdmin):
         super().save_formset(request, form, formset, change)
 
     class Media:
-        js  = (
-            'admin/js/plantilla_propiedades_picker.js',
-            'admin/js/no_autocomplete.js',
-        )
+        js  = ('admin/js/plantilla_propiedades_picker.js',)
         css = {'all': ('admin/css/plantilla_propiedades_picker.css',)}
 
 
 @admin.register(Analisis)
-class AnalisisAdmin(admin.ModelAdmin):
+class AnalisisAdmin(NoAutocompleteMixin, admin.ModelAdmin):
     form          = AnalisisAdminForm
     list_display  = ('id', 'get_paciente', 'get_plantilla', 'status', 'creado_por',
                      'fecha_analisis', 'get_resumen_propiedades', 'link_pdf')
