@@ -280,6 +280,15 @@ class PropiedadForm(forms.ModelForm):
             }),
         }
 
+    def clean_nombre_propiedad(self):
+        """
+        Convierte a mayúsculas ANTES de que Django valide la restricción unique.
+        Sin esto, 'hemoglobina' pasa el check (no coincide con 'HEMOGLOBINA'),
+        save_model la convierte y la BD lanza IntegrityError sin capturar → Error 500.
+        """
+        nombre = self.cleaned_data.get('nombre_propiedad', '')
+        return nombre.upper() if nombre else nombre
+
     class Media:
         js = ('admin/js/intervalo_toggle.js',)
 
@@ -622,7 +631,8 @@ class PropiedadAdmin(admin.ModelAdmin):
                     'diferencia el nombre usando un prefijo de símbolo. '
                     'Ejemplos: "BASÓFILOS" → valor absoluto (/µL) | "%BASÓFILOS" → porcentaje (%) | '
                     '"#ERITROCITOS" → conteo (×10⁶/µL). '
-                    'Así ambas propiedades pueden coexistir en la misma plantilla sin conflicto.'
+                    'El prefijo se elimina automáticamente en el PDF y en la búsqueda LOINC, '
+                    'por lo que no afecta al reporte ni a la asignación de códigos.'
                 ),
                 level='info',
             )
@@ -735,20 +745,48 @@ class PlantillaAdmin(admin.ModelAdmin):
         if not q:
             return JsonResponse({'results': [], 'filtrado': False})
 
+        # ── Normalizar prefijos de símbolo (#, %) ────────────────────────────
+        #
+        # Convención del sistema para diferenciar variantes de un mismo analito:
+        #   '%MONOCITOS'   → porcentaje       → property LOINC: NFr,         scale: Qn
+        #   '#ERITROCITOS' → conteo absoluto  → property LOINC: NCnc / Naric, scale: Qn
+        #   'MONOCITOS'    → sin prefijo      → se consulta el diccionario attrs_for()
+        #
+        # `q`       se conserva con el prefijo (para log/debug).
+        # `q_clean` se usa para text search y para buscar traducciones al inglés.
+        import re
+        prefijo_match = re.match(r'^([#%]+)', q)
+        prefijo       = prefijo_match.group(1) if prefijo_match else ''
+        q_clean       = q[len(prefijo):].strip()
+
+        # Determinar el override semántico a partir del prefijo.
+        # El override tiene prioridad sobre el diccionario NOMBRE_A_LOINC_ATTRS,
+        # porque el prefijo es información explícita dada por el usuario.
+        if '%' in prefijo:
+            prop_override  = ['NFr']           # fracción numérica (porcentaje)
+            scale_override = ['Qn']
+        elif '#' in prefijo:
+            prop_override  = ['NCnc', 'Naric'] # concentración numérica / conteo
+            scale_override = ['Qn']
+        else:
+            prop_override  = []
+            scale_override = []
+
         # ── PASO 1: Filtro base por texto ────────────────────────────────────
         # Si la query parece un código LOINC (solo dígitos/guiones, ej. "718-7"),
         # buscar ÚNICAMENTE en loinc_num. Así se evitan falsos positivos en
         # shortname/component y se saltan los filtros semánticos que no aplican
         # para búsquedas por número.
-        import re
-        es_loinc_num = bool(re.match(r'^\d[\d\-]*$', q))
+        es_loinc_num = bool(re.match(r'^\d[\d\-]*$', q_clean))
 
         if es_loinc_num:
-            qs_base      = LoincCode.objects.filter(loinc_num__icontains=q)
+            qs_base      = LoincCode.objects.filter(loinc_num__icontains=q_clean)
             qs_semantico = qs_base
         else:
-            # Traduce el nombre español al inglés y busca en los campos de texto.
-            terminos_q = component_terms_for(q)
+            # Traduce el nombre limpio (sin prefijo) al inglés y busca en los
+            # campos de texto. Esto garantiza que '%MONOCITOS' encuentre
+            # los mismos términos ingleses que 'MONOCITOS'.
+            terminos_q = component_terms_for(q_clean)
             q_text = Q()
             for termino in terminos_q:
                 q_text |= (
@@ -758,12 +796,23 @@ class PlantillaAdmin(admin.ModelAdmin):
                 )
             qs_base = LoincCode.objects.filter(q_text)
 
-            # ── PASO 2: Filtro semántico por property + scale_typ ────────────────
-            # Consultar los atributos LOINC esperados para esta propiedad.
-            # Si no hay mapeo definido, attrs queda vacío y se omite este filtro.
-            attrs        = attrs_for(q)
-            prop_terms   = attrs.get('property', [])
-            scale_terms  = attrs.get('scale',    [])
+            # ── PASO 2: Filtro semántico por property + scale_typ ────────────
+            #
+            # Prioridad:
+            #   1. Override de prefijo (#/%)  → autoritativo, el usuario fue explícito.
+            #   2. Diccionario NOMBRE_A_LOINC_ATTRS → comportamiento previo sin prefijo.
+            #
+            # Si no hay mapeo de ningún tipo, attrs_activos queda False y se omite
+            # el filtro (fallback al resultado base de texto).
+            if prop_override:
+                # El prefijo ya nos dice el property exacto; no hace falta el dict.
+                prop_terms  = prop_override
+                scale_terms = scale_override
+            else:
+                # Sin prefijo: consultar el diccionario con el nombre limpio.
+                attrs       = attrs_for(q_clean)
+                prop_terms  = attrs.get('property', [])
+                scale_terms = attrs.get('scale',    [])
 
             qs_con_attrs  = qs_base
             attrs_activos = False
@@ -998,7 +1047,8 @@ class PlantillaAdmin(admin.ModelAdmin):
                 PlantillaPropiedad.objects
                 .filter(plantilla=obj)
                 .select_related('propiedad', 'loinc_code')
-                .order_by('seccion', 'orden', 'propiedad__nombre_propiedad')
+                # CORREGIDO: usar orden_seccion/orden, no nombre de sección (alfabético)
+                .order_by('orden_seccion', 'orden', 'propiedad__nombre_propiedad')
             ):
                 existing_data.append({
                     'propId':        pp.propiedad_id,
@@ -1007,6 +1057,7 @@ class PlantillaAdmin(admin.ModelAdmin):
                     'loincNum':      pp.loinc_code.loinc_num  if pp.loinc_code else '',
                     'loincDesc':     pp.loinc_code.shortname  if pp.loinc_code else '',
                     'orden':         pp.orden,
+                    'ordenSeccion':  pp.orden_seccion,   # NUEVO: exponer al picker JS
                     'seccionNombre': pp.seccion or '',
                     'seccionId':     pp.seccion or '',
                 })
@@ -1090,6 +1141,18 @@ class PlantillaAdmin(admin.ModelAdmin):
         while len(ordenes_list)   < len(ids_list): ordenes_list.append('')
         while len(secciones_list) < len(ids_list): secciones_list.append('')
 
+        # Calcular orden_seccion a partir del orden de primera aparición de cada sección.
+        # Así FÓRMULA ROJA (aparece primero en el picker) → 1,
+        #     FÓRMULA BLANCA (segunda sección) → 2, etc.
+        # Las propiedades sin sección quedan con orden_seccion=0 al frente,
+        # o se pueden enviar al final con un valor alto si se prefiere.
+        seccion_orden_map: dict = {}
+        _counter = 1
+        for sec in secciones_list:
+            if sec and sec not in seccion_orden_map:
+                seccion_orden_map[sec] = _counter
+                _counter += 1
+
         PlantillaPropiedad.objects.filter(plantilla=obj).delete()
 
         for idx, prop_id_str in enumerate(ids_list):
@@ -1104,18 +1167,20 @@ class PlantillaAdmin(admin.ModelAdmin):
             orden_str    = ordenes_list[idx]    if idx < len(ordenes_list)   else ''
             seccion_str  = secciones_list[idx]  if idx < len(secciones_list) else ''
 
-            orden = int(orden_str) if orden_str.isdigit() else (idx + 1)
+            orden         = int(orden_str) if orden_str.isdigit() else (idx + 1)
+            orden_seccion = seccion_orden_map.get(seccion_str, 0)
 
             loinc_obj = None
             if loinc_id_str.isdigit():
                 loinc_obj = LoincCode.objects.filter(pk=int(loinc_id_str)).first()
 
             PlantillaPropiedad.objects.create(
-                plantilla  = obj,
-                propiedad  = propiedad,
-                loinc_code = loinc_obj,
-                seccion    = seccion_str or None,
-                orden      = orden,
+                plantilla     = obj,
+                propiedad     = propiedad,
+                loinc_code    = loinc_obj,
+                seccion       = seccion_str or None,
+                orden         = orden,
+                orden_seccion = orden_seccion,   # CORREGIDO: guardar orden de sección
             )
 
     def save_formset(self, request, form, formset, change):

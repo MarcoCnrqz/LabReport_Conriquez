@@ -100,6 +100,31 @@ def _sanitizar_unidad(valor):
     return str(valor).strip()
 
 
+def _truncar(texto, ancho_max_pt, font_name, font_size):
+    """
+    Trunca `texto` con '…' si supera `ancho_max_pt` puntos tipográficos.
+    Útil para evitar que nombres de propiedad muy largos se salgan de la columna.
+    """
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+    if not texto:
+        return texto
+    try:
+        sw = stringWidth(texto, font_name, font_size)
+    except Exception:
+        sw = stringWidth(texto, 'Helvetica', font_size)
+    if sw <= ancho_max_pt:
+        return texto
+    while len(texto) > 1:
+        texto = texto[:-1]
+        try:
+            ancho = stringWidth(texto + '…', font_name, font_size)
+        except Exception:
+            ancho = stringWidth(texto + '…', 'Helvetica', font_size)
+        if ancho <= ancho_max_pt:
+            break
+    return texto + '…'
+
+
 # =============================================================================
 # 2. FUNCIÓN PRINCIPAL
 # =============================================================================
@@ -234,8 +259,7 @@ def generar_pdf_reporte(detalles):
 
         # Si no caben en la página actual, nueva página
         if y - IMG_MAX_H - 0.4 * cm < Y_FOOTER_TOP:
-            c.showPage()
-            y = height - 2 * cm
+            y = _nueva_pagina()
 
         # Título de sección "IMÁGENES"
         SEC_IMG_H = 0.55 * cm
@@ -360,6 +384,42 @@ def generar_pdf_reporte(detalles):
     fila_global = 0   # contador continuo para fondo alterno entre grupos
     primer_grupo = True
 
+    # ── Función para saltar de página con cabecera compacta ──────────────────
+    #
+    # En páginas de continuación se dibuja un header reducido con:
+    #   • Nombre del laboratorio + línea decorativa doble
+    #   • Nombre del paciente (izquierda) + tipo de análisis (derecha)
+    # Devuelve la nueva `y` desde la que continuar el contenido.
+    def _nueva_pagina():
+        c.showPage()
+        yy = height - 1.2 * cm
+
+        nombre_lab = detalles.get("laboratorio_nombre", "")
+        if nombre_lab:
+            _font(c, "Roboto-Bold", 9)
+            c.setFillColor(COLOR_TEXTO_OSC)
+            c.drawCentredString(width / 2, yy, nombre_lab.upper())
+            yy -= 0.45 * cm
+            c.setStrokeColor(COLOR_BORDE)
+            c.setLineWidth(1.0)
+            c.line(MARGEN_IZQ, yy, MARGEN_DER, yy)
+            c.setStrokeColor(colors.HexColor("#e8eb90"))
+            c.setLineWidth(0.4)
+            c.line(MARGEN_IZQ, yy - 0.1 * cm, MARGEN_DER, yy - 0.1 * cm)
+            yy -= 0.35 * cm
+
+        _font(c, "Roboto-Bold", 8)
+        c.setFillColor(COLOR_TEXTO_OSC)
+        c.drawString(MARGEN_IZQ, yy,
+                     f"Paciente: {detalles.get('paciente', '')}")
+        _font(c, "Roboto-Italic", 8)
+        c.setFillColor(COLOR_TEXTO_SUAV)
+        c.drawRightString(MARGEN_DER, yy,
+                          str(detalles.get('tipo', '')).upper())
+        yy -= 0.55 * cm
+
+        return yy
+
     for grupo in grupos:
         nombre_serie = (grupo.get('seccion') or '').strip()
         filas        = grupo.get('filas', [])
@@ -372,8 +432,7 @@ def generar_pdf_reporte(detalles):
             espacio_min = SERIE_H + HEADER_H + FILA_H
             if not primer_grupo and y - espacio_min < Y_FOOTER_TOP:
                 cerrar_tabla(y)
-                c.showPage()
-                y = height - 2 * cm
+                y = _nueva_pagina()
 
             dibujar_serie_header(y, nombre_serie)
             y -= SERIE_H
@@ -388,8 +447,7 @@ def generar_pdf_reporte(detalles):
         for res in filas:
             if y - FILA_H < Y_FOOTER_TOP:
                 cerrar_tabla(y)
-                c.showPage()
-                y = height - 2 * cm
+                y = _nueva_pagina()
                 y = _iniciar_tabla(y)
 
             # Fondo alterno (continuo entre grupos para consistencia visual)
@@ -409,7 +467,12 @@ def generar_pdf_reporte(detalles):
             # — PRUEBA —
             _font(c, "Roboto", 7.5)
             c.setFillColor(colors.black)
-            c.drawString(X0 + PAD, Y_TX_NAME, str(res.get('nombre_propiedad', '')))
+            nombre_txt = _truncar(
+                str(res.get('nombre_propiedad', '')),
+                COL_PRUEBA - PAD * 2,
+                'Roboto', 7.5,
+            )
+            c.drawString(X0 + PAD, Y_TX_NAME, nombre_txt)
 
             # — LOINC (código gris, pequeño, debajo del nombre de prueba) —
             loinc_num = res.get('loinc_num', '') or ''
@@ -436,18 +499,24 @@ def generar_pdf_reporte(detalles):
                 rango_txt = "-"
             c.drawString(X2 + PAD, Y_TX_NAME, rango_txt)
 
-            # — UNIDAD — (None → N/A)
-            unidad_str = _sanitizar_unidad(res.get('unidad'))
-            c.setFillColor(COLOR_TEXTO_MED)
-            c.drawString(X3 + PAD, Y_TX_NAME, unidad_str)
-
             # — OPCIONES CUALITATIVAS —
+            # Se calcula antes de la unidad para saber si la propiedad es cualitativa.
             opciones_str = res.get('opciones_cualitativas', '') or ''
             if opciones_str:
                 partes           = [p.strip() for p in opciones_str.split(',') if p.strip()]
                 opciones_display = " / ".join(partes)
             else:
                 opciones_display = "-"
+
+            # — UNIDAD —
+            # Para propiedades cualitativas la unidad no aplica; se muestra "-"
+            # en lugar de "N/A" para no confundir al lector del reporte.
+            if opciones_str:
+                unidad_str = "-"
+            else:
+                unidad_str = _sanitizar_unidad(res.get('unidad'))
+            c.setFillColor(COLOR_TEXTO_MED)
+            c.drawString(X3 + PAD, Y_TX_NAME, unidad_str)
 
             _font(c, "Roboto-Italic", 7)
             c.setFillColor(colors.HexColor("#666666"))

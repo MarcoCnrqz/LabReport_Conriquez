@@ -30,6 +30,27 @@ from .utils.imprimir_pdf import generar_pdf_reporte
 
 
 # ======================================================
+# UTILIDADES DE PRESENTACIÓN
+# ======================================================
+
+def _nombre_display(nombre: str) -> str:
+    """
+    Devuelve el nombre de una propiedad sin los prefijos de símbolo
+    que se usan para diferenciar variantes del mismo analito.
+
+    Convención del sistema:
+        '%MONOCITOS'   → 'MONOCITOS'   (la variante % la da la unidad)
+        '#ERITROCITOS' → 'ERITROCITOS' (la variante abs la da la unidad)
+        'HEMOGLOBINA'  → 'HEMOGLOBINA' (sin cambio)
+
+    Usar esta función en cualquier contexto de salida (PDF, API, etc.)
+    para que el usuario final vea un nombre limpio.
+    """
+    import re
+    return re.sub(r'^[#%]+', '', nombre).strip() if nombre else nombre
+
+
+# ======================================================
 # JWT — HELPERS
 # ======================================================
 
@@ -449,6 +470,11 @@ def _construir_detalles_analisis(analisis):
             except Exception:
                 nombre_prop = None
 
+        # Limpiar prefijos de símbolo (#, %) para que el PDF muestre
+        # el nombre sin el artificio de diferenciación interno.
+        # Ej: '%MONOCITOS' → 'MONOCITOS'  (la unidad ya indica que es %)
+        nombre_prop = _nombre_display(nombre_prop)
+
         if not nombre_prop:
             print(f"  [PDF] Resultado id={res.pk} sin nombre_propiedad — omitido del PDF")
             continue
@@ -652,22 +678,20 @@ def plantilla_propiedades(request, plantilla_id):
         except Paciente.DoesNotExist:
             paciente = None
 
-    # Mapa propiedad_id → PlantillaPropiedad para obtener seccion, orden y loinc
-    pp_map = {
-        pp.propiedad_id: pp
-        for pp in PlantillaPropiedad.objects
+    # Obtener propiedades ya ordenadas por orden_seccion/orden desde PlantillaPropiedad
+    pp_list = list(
+        PlantillaPropiedad.objects
         .filter(plantilla=plantilla)
-        .select_related('loinc_code')
-        .order_by('orden_seccion', 'orden')
-    }
+        .select_related('propiedad', 'loinc_code')
+        .order_by('orden_seccion', 'orden', 'propiedad__nombre_propiedad')
+    )
 
-    propiedades_qs = plantilla.propiedades.all()
-    resultado      = []
+    resultado = []
 
-    for prop in propiedades_qs:
-        pp             = pp_map.get(prop.id)
-        seccion_nombre = (pp.seccion       or '') if pp else ''
-        orden_seccion  = (pp.orden_seccion     )  if pp else 9999
+    for pp in pp_list:
+        prop           = pp.propiedad
+        seccion_nombre = pp.seccion       or ''
+        orden_seccion  = pp.orden_seccion
 
         if paciente:
             edad_meses = paciente.edad_en_meses
@@ -682,8 +706,8 @@ def plantilla_propiedades(request, plantilla_id):
             if prop.intervalos.exists() and not intervalo:
                 continue
 
-            loinc_num  = (pp.loinc_code.loinc_num if pp and pp.loinc_code else '')
-            loinc_desc = (pp.loinc_code.shortname  if pp and pp.loinc_code else '')
+            loinc_num  = (pp.loinc_code.loinc_num if pp.loinc_code else '')
+            loinc_desc = (pp.loinc_code.shortname  if pp.loinc_code else '')
             resultado.append({
                 'id':                    prop.id,
                 'nombre_propiedad':      prop.nombre_propiedad,
@@ -698,8 +722,8 @@ def plantilla_propiedades(request, plantilla_id):
                 'loinc_desc':            loinc_desc,
             })
         else:
-            loinc_num  = (pp.loinc_code.loinc_num if pp and pp.loinc_code else '')
-            loinc_desc = (pp.loinc_code.shortname  if pp and pp.loinc_code else '')
+            loinc_num  = (pp.loinc_code.loinc_num if pp.loinc_code else '')
+            loinc_desc = (pp.loinc_code.shortname  if pp.loinc_code else '')
             resultado.append({
                 'id':                    prop.id,
                 'nombre_propiedad':      prop.nombre_propiedad,

@@ -582,27 +582,48 @@ def attrs_for(nombre_propiedad: str) -> dict[str, list[str]]:
     con una lista de valores aceptables (OR entre ellos).
     Retorna dict vacío si no hay mapeo definido para esa propiedad.
 
-    Estrategia de búsqueda (igual que las otras funciones):
-    1. Coincidencia exacta.
-    2. Case-insensitive exacto.
-    3. Coincidencia parcial (el nombre empieza por alguna clave).
+    Estrategia de búsqueda:
+    1. Exacto con el nombre original.
+    2. Exacto con el nombre limpio (sin prefijo # o %).
+    3. Case-insensitive exacto (original y limpio).
+    4. Coincidencia parcial con el nombre limpio.
+
+    NOTA sobre prefijos de símbolo:
+        Propiedades como '%MONOCITOS' (#→conteo, %→porcentaje) usan un
+        prefijo para diferenciar dos variantes del mismo analito.
+        Esta función ignora el prefijo en la búsqueda del diccionario.
+        La interpretación semántica del prefijo (NFr vs NCnc) la hace
+        _loinc_buscar() en admin.py, que tiene prioridad sobre este dict.
     """
+    import re as _re
+
     key = nombre_propiedad.strip()
     if not key:
         return {}
 
-    # 1. Exacto
+    # Nombre sin prefijo # / % para la búsqueda en el diccionario
+    key_clean = _re.sub(r'^[#%]+', '', key).strip()
+
+    # 1. Exacto con nombre original
     if key in NOMBRE_A_LOINC_ATTRS:
         return NOMBRE_A_LOINC_ATTRS[key]
 
-    # 2. Case-insensitive exacto
-    key_lower = key.lower()
+    # 2. Exacto con nombre limpio (cubre '%MONOCITOS' → 'MONOCITOS')
+    if key_clean and key_clean in NOMBRE_A_LOINC_ATTRS:
+        return NOMBRE_A_LOINC_ATTRS[key_clean]
+
+    # 3. Case-insensitive exacto
+    key_lower       = key.lower()
+    key_clean_lower = key_clean.lower()
+
     if key_lower in _ATTRS_INDEX:
         return _ATTRS_INDEX[key_lower]
+    if key_clean_lower and key_clean_lower in _ATTRS_INDEX:
+        return _ATTRS_INDEX[key_clean_lower]
 
-    # 3. Coincidencia parcial
+    # 4. Coincidencia parcial con el nombre limpio
     for k_lower, v in _ATTRS_INDEX.items():
-        if key_lower.startswith(k_lower) or k_lower.startswith(key_lower):
+        if key_clean_lower.startswith(k_lower) or k_lower.startswith(key_clean_lower):
             return v
 
     # Sin mapeo: no restringir (el endpoint usará solo component/system/method)
