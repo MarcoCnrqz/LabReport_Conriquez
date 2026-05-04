@@ -512,7 +512,7 @@ class ResultadoSerializer(serializers.ModelSerializer):
 
     class Meta:
         model  = ResultadoAnalisis
-        fields = ['id', 'propiedad', 'loinc_code', 'nombre_propiedad', 'valor', 'unidad', 'valor_blob1', 'valor_blob2']
+        fields = ['id', 'propiedad', 'loinc_code', 'nombre_propiedad', 'valor', 'unidad']
         extra_kwargs = {
             'propiedad': {'read_only': True},
         }
@@ -575,31 +575,15 @@ class AnalisisSerializer(serializers.ModelSerializer):
         write_only=True,
         required=False,
         default=list,
-        source='resultados',
+        # FIX: NO usar source='resultados' — conflicto con el campo read-only
+        # 'resultados = ResultadoSerializer(...)' que comparte el mismo accessor.
+        # DRF lanza ImproperlyConfigured cuando dos campos apuntan al mismo source.
+        # El create() y update() ahora extraen 'resultados_input' directamente.
     )
 
     class Meta:
         model  = Analisis
         fields = '__all__'
-
-    def to_representation(self, instance):
-        """
-        Enriquece la representación de lectura sin modificar los fields declarados
-        (evita ImproperlyConfigured al sobreescribir campos FK con __all__).
-
-        - plantilla: en vez del ID entero, devuelve {id, titulo, tipo_formato}
-          para que el cliente local resuelva el plantilla_id correcto buscando
-          por título y obtenga tipo_formato sin petición extra.
-        """
-        data = super().to_representation(instance)
-        plantilla_obj = instance.plantilla if instance.plantilla_id else None
-        if plantilla_obj:
-            data['plantilla'] = {
-                'id':           plantilla_obj.id,
-                'titulo':       plantilla_obj.titulo,
-                'tipo_formato': plantilla_obj.tipo_formato,
-            }
-        return data
 
     def _obtener_loinc_para_resultado(self, analisis, propiedad_obj):
         """
@@ -618,7 +602,8 @@ class AnalisisSerializer(serializers.ModelSerializer):
             return None
 
     def create(self, validated_data):
-        resultados_data   = validated_data.pop('resultados', [])
+        # FIX: 'resultados_input' ya no tiene source='resultados', se extrae por su nombre.
+        resultados_data   = validated_data.pop('resultados_input', [])
         nombres_extra     = validated_data.pop('nombres_propiedades_extra', [])
         nombres_excluidas = validated_data.pop('nombres_propiedades_excluidas', [])
 
@@ -691,7 +676,8 @@ class AnalisisSerializer(serializers.ModelSerializer):
         return analisis
 
     def update(self, instance, validated_data):
-        resultados_data   = validated_data.pop('resultados', None)
+        # FIX: igual que create(), extraer por nombre propio del campo.
+        resultados_data   = validated_data.pop('resultados_input', None)
         nombres_extra     = validated_data.pop('nombres_propiedades_extra', None)
         nombres_excluidas = validated_data.pop('nombres_propiedades_excluidas', None)
 
@@ -845,6 +831,60 @@ class MiLaboratorioResponseSerializer(serializers.ModelSerializer):
 # BÚSQUEDA EN NUBE
 # ======================================================
 
+class PlantillaSimpleSerializer(serializers.ModelSerializer):
+    """
+    Serializer ligero de Plantilla para anidar dentro de los análisis
+    devueltos por la búsqueda en nube.
+    Incluye 'titulo' y 'tipo_formato' para que el cliente local pueda
+    resolver/crear la plantilla correcta sin depender del ID de la nube.
+    """
+    class Meta:
+        model  = Plantilla
+        fields = ['id', 'titulo', 'tipo_formato']
+
+
+class ResultadoBusquedaSerializer(serializers.ModelSerializer):
+    """
+    Serializer ligero de ResultadoAnalisis para búsqueda en nube.
+    Solo campos necesarios para la importación local; sin blobs.
+    """
+    nombre_propiedad = serializers.SerializerMethodField()
+
+    class Meta:
+        model  = ResultadoAnalisis
+        fields = ['id', 'propiedad', 'nombre_propiedad', 'valor', 'unidad']
+
+    def get_nombre_propiedad(self, obj):
+        if obj.nombre_propiedad:
+            return obj.nombre_propiedad
+        try:
+            if obj.propiedad:
+                return obj.propiedad.nombre_propiedad
+        except Exception:
+            pass
+        return ''
+
+
+class AnalisisBusquedaSerializer(serializers.ModelSerializer):
+    """
+    Serializer de solo-lectura de Analisis para el endpoint buscar_nube.
+
+    FIX: 'plantilla' se devuelve como objeto anidado {id, titulo, tipo_formato}
+    en lugar del ID entero que genera AnalisisSerializer por defecto.
+    El cliente local necesita el título para crear/encontrar la plantilla en su
+    BD SQLite (los IDs de la nube y local no coinciden).
+    """
+    plantilla  = PlantillaSimpleSerializer(read_only=True)
+    resultados = ResultadoBusquedaSerializer(many=True, read_only=True)
+
+    class Meta:
+        model  = Analisis
+        fields = [
+            'id', 'plantilla', 'fecha_muestra', 'fecha_analisis',
+            'hora_toma', 'resultados',
+        ]
+
+
 class PacienteBusquedaNubeSerializer(serializers.ModelSerializer):
     edad            = serializers.ReadOnlyField()
     nombre_completo = serializers.ReadOnlyField()
@@ -862,7 +902,10 @@ class PacienteBusquedaNubeSerializer(serializers.ModelSerializer):
     def get_analisis(self, obj):
         from .models import Analisis as AnalisisModel
         analisis_qs = AnalisisModel.objects.filter(paciente=obj).order_by('-fecha_analisis')
-        return AnalisisSerializer(analisis_qs, many=True, context=self.context).data
+        # FIX: usar AnalisisBusquedaSerializer en lugar de AnalisisSerializer para que
+        # 'plantilla' se devuelva como objeto {id, titulo, tipo_formato} anidado.
+        # Así el cliente local puede resolver la plantilla correcta por título.
+        return AnalisisBusquedaSerializer(analisis_qs, many=True, context=self.context).data
 
 
 # ======================================================
