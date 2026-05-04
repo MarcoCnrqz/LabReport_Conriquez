@@ -507,18 +507,6 @@ class PlantillaSerializer(serializers.ModelSerializer):
 # SERIALIZERS DE ANÁLISIS
 # ======================================================
 
-class PlantillaLightSerializer(serializers.ModelSerializer):
-    """
-    Serializer ligero de Plantilla para anidar en AnalisisSerializer (GET).
-    Expone titulo y tipo_formato para que el cliente local pueda:
-      1. Resolver el plantilla_id correcto buscando por título (evita desajuste de IDs).
-      2. Saber el tipo_formato sin una segunda petición.
-    """
-    class Meta:
-        model  = Plantilla
-        fields = ['id', 'titulo', 'tipo_formato']
-
-
 class ResultadoSerializer(serializers.ModelSerializer):
     nombre_propiedad = serializers.SerializerMethodField()
 
@@ -560,22 +548,13 @@ class AnalisisSerializer(serializers.ModelSerializer):
       no necesariamente coinciden con los IDs de la BD en la nube.
 
     LECTURA (GET):
-      - plantilla anidada con {id, titulo, tipo_formato} — el cliente usa
-        el título para resolver el plantilla_id local sin depender del ID
-        de la nube (que puede no coincidir con el local).
-      - resultados anidados con nombre_propiedad, valor, unidad, blobs.
+      - resultados anidados con nombre_propiedad, valor, unidad
 
     ALINEACIÓN CON DJANGO:
       - loinc_code en ResultadoAnalisis se obtiene de PlantillaPropiedad,
         NO de Propiedad (que no tiene esa FK en el modelo).
     """
     resultados = ResultadoSerializer(many=True, read_only=True)
-
-    # FIX: plantilla como objeto anidado en lectura → el cliente obtiene
-    # titulo y tipo_formato para resolver correctamente el plantilla_id local.
-    # NOTA: NO se declara plantilla_id aquí porque fields='__all__' ya lo
-    # incluye automáticamente como columna entera escribible del modelo.
-    plantilla = PlantillaLightSerializer(read_only=True)
 
     nombres_propiedades_extra = serializers.ListField(
         child=serializers.CharField(),
@@ -602,6 +581,25 @@ class AnalisisSerializer(serializers.ModelSerializer):
     class Meta:
         model  = Analisis
         fields = '__all__'
+
+    def to_representation(self, instance):
+        """
+        Enriquece la representación de lectura sin modificar los fields declarados
+        (evita ImproperlyConfigured al sobreescribir campos FK con __all__).
+
+        - plantilla: en vez del ID entero, devuelve {id, titulo, tipo_formato}
+          para que el cliente local resuelva el plantilla_id correcto buscando
+          por título y obtenga tipo_formato sin petición extra.
+        """
+        data = super().to_representation(instance)
+        plantilla_obj = instance.plantilla if instance.plantilla_id else None
+        if plantilla_obj:
+            data['plantilla'] = {
+                'id':           plantilla_obj.id,
+                'titulo':       plantilla_obj.titulo,
+                'tipo_formato': plantilla_obj.tipo_formato,
+            }
+        return data
 
     def _obtener_loinc_para_resultado(self, analisis, propiedad_obj):
         """
