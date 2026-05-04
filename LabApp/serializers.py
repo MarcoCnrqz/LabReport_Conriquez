@@ -507,12 +507,24 @@ class PlantillaSerializer(serializers.ModelSerializer):
 # SERIALIZERS DE ANÁLISIS
 # ======================================================
 
+class PlantillaLightSerializer(serializers.ModelSerializer):
+    """
+    Serializer ligero de Plantilla para anidar en AnalisisSerializer (GET).
+    Expone titulo y tipo_formato para que el cliente local pueda:
+      1. Resolver el plantilla_id correcto buscando por título (evita desajuste de IDs).
+      2. Saber el tipo_formato sin una segunda petición.
+    """
+    class Meta:
+        model  = Plantilla
+        fields = ['id', 'titulo', 'tipo_formato']
+
+
 class ResultadoSerializer(serializers.ModelSerializer):
     nombre_propiedad = serializers.SerializerMethodField()
 
     class Meta:
         model  = ResultadoAnalisis
-        fields = ['id', 'propiedad', 'loinc_code', 'nombre_propiedad', 'valor', 'unidad']
+        fields = ['id', 'propiedad', 'loinc_code', 'nombre_propiedad', 'valor', 'unidad', 'valor_blob1', 'valor_blob2']
         extra_kwargs = {
             'propiedad': {'read_only': True},
         }
@@ -548,13 +560,29 @@ class AnalisisSerializer(serializers.ModelSerializer):
       no necesariamente coinciden con los IDs de la BD en la nube.
 
     LECTURA (GET):
-      - resultados anidados con nombre_propiedad, valor, unidad
+      - plantilla anidada con {id, titulo, tipo_formato} — el cliente usa
+        el título para resolver el plantilla_id local sin depender del ID
+        de la nube (que puede no coincidir con el local).
+      - resultados anidados con nombre_propiedad, valor, unidad, blobs.
 
     ALINEACIÓN CON DJANGO:
       - loinc_code en ResultadoAnalisis se obtiene de PlantillaPropiedad,
         NO de Propiedad (que no tiene esa FK en el modelo).
     """
     resultados = ResultadoSerializer(many=True, read_only=True)
+
+    # FIX: plantilla como objeto anidado en lectura → el cliente obtiene
+    # titulo y tipo_formato para resolver correctamente el plantilla_id local.
+    plantilla = PlantillaLightSerializer(read_only=True)
+
+    # Campo write-only para que los POSTs/PATCHs sigan aceptando el ID entero.
+    plantilla_id = serializers.PrimaryKeyRelatedField(
+        queryset=Plantilla.objects.all(),
+        source='plantilla',
+        write_only=True,
+        required=False,
+        allow_null=True,
+    )
 
     nombres_propiedades_extra = serializers.ListField(
         child=serializers.CharField(),
