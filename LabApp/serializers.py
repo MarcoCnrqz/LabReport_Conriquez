@@ -508,12 +508,31 @@ class PlantillaSerializer(serializers.ModelSerializer):
 # ======================================================
 
 class ResultadoSerializer(serializers.ModelSerializer):
+    nombre_propiedad = serializers.SerializerMethodField()
+
     class Meta:
         model  = ResultadoAnalisis
         fields = ['id', 'propiedad', 'loinc_code', 'nombre_propiedad', 'valor', 'unidad']
         extra_kwargs = {
             'propiedad': {'read_only': True},
         }
+
+    def get_nombre_propiedad(self, obj):
+        """
+        Retorna el nombre_propiedad guardado en el resultado.
+        Si está vacío (p. ej. análisis creado desde el admin Django sin llenar
+        ese campo), cae al nombre de la Propiedad relacionada.
+        Esto garantiza que los análisis de la nube siempre lleguen con nombre
+        al cliente de escritorio y se importen correctamente.
+        """
+        if obj.nombre_propiedad:
+            return obj.nombre_propiedad
+        try:
+            if obj.propiedad:
+                return obj.propiedad.nombre_propiedad
+        except Exception:
+            pass
+        return ''
 
 
 class AnalisisSerializer(serializers.ModelSerializer):
