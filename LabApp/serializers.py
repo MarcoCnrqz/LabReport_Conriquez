@@ -573,16 +573,9 @@ class AnalisisSerializer(serializers.ModelSerializer):
 
     # FIX: plantilla como objeto anidado en lectura → el cliente obtiene
     # titulo y tipo_formato para resolver correctamente el plantilla_id local.
+    # NOTA: NO se declara plantilla_id aquí porque fields='__all__' ya lo
+    # incluye automáticamente como columna entera escribible del modelo.
     plantilla = PlantillaLightSerializer(read_only=True)
-
-    # Campo write-only para que los POSTs/PATCHs sigan aceptando el ID entero.
-    plantilla_id = serializers.PrimaryKeyRelatedField(
-        queryset=Plantilla.objects.all(),
-        source='plantilla',
-        write_only=True,
-        required=False,
-        allow_null=True,
-    )
 
     nombres_propiedades_extra = serializers.ListField(
         child=serializers.CharField(),
