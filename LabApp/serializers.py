@@ -881,7 +881,7 @@ class AnalisisBusquedaSerializer(serializers.ModelSerializer):
         model  = Analisis
         fields = [
             'id', 'plantilla', 'fecha_muestra', 'fecha_analisis',
-            'hora_toma', 'resultados',
+            'hora_toma', 'status', 'resultados',
         ]
 
 
