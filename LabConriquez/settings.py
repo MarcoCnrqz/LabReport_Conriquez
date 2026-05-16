@@ -1,5 +1,6 @@
 from pathlib import Path
 import os
+import sys
 import dj_database_url
 
 # ========== CLOUDINARY ==========
@@ -193,7 +194,8 @@ STORAGES = {
 # ======================================================================
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
-
+# LOGIN
+LOGIN_URL = '/admin/login/'
 
 # ======================================================================
 # CONFIGURACION DE DISEÑO DE JAZZMIN
@@ -262,3 +264,13 @@ JAZZMIN_UI_TWEAKS = {
         "success": "btn-success"
     }
 }
+# Cuando se ejecutan pruebas, usar almacenamiento local en vez de Cloudinary
+if 'test' in sys.argv:
+    STORAGES = {
+        'default': {
+            'BACKEND': 'django.core.files.storage.FileSystemStorage',
+        },
+        'staticfiles': {
+            'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage',
+        },
+    }

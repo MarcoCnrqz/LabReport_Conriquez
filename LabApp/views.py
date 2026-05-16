@@ -7,10 +7,12 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import api_view, action
 from rest_framework.response import Response
 from django.shortcuts import render, get_object_or_404
+from django.contrib.auth.decorators import login_required
 from django.http import HttpResponse, FileResponse, JsonResponse
 from django.views.decorators.http import require_GET
 from django.db.models import Q
 from django.conf import settings
+
 
 from .models import (
     Paciente, Laboratorio, Analisis, ResultadoAnalisis,
@@ -616,25 +618,46 @@ def _construir_detalles_analisis(analisis):
 # PDF — VISTAS
 # ======================================================
 
-def generar_pdf_admin(request, analisis_id):
-    analisis     = get_object_or_404(Analisis, id=analisis_id)
-    detalles     = _construir_detalles_analisis(analisis)
-    archivo_path = generar_pdf_reporte(detalles)
-    return FileResponse(
-        open(archivo_path, 'rb'),
-        content_type='application/pdf',
-        filename=f"analisis_{analisis_id}.pdf"
+# DESPUÉS — acepta sesión Django Admin Y JWT
+@require_GET
+def generar_pdf_analisis(request, pk):
+    """
+    Permite acceso desde dos contextos:
+      1. Django Admin (browser): cookie de sesión, request.user.is_staff = True
+      2. API / tests:            header Authorization: Bearer <token>
+    """
+    via_sesion = (
+        hasattr(request, 'user')
+        and request.user.is_authenticated
+        and request.user.is_staff
     )
 
+    if not via_sesion:
+        auth_header = request.headers.get('Authorization', '')
+        if not auth_header.startswith('Bearer '):
+            return JsonResponse(
+                {'error': 'Token no proporcionado. Usa: Authorization: Bearer <token>'},
+                status=401,
+            )
+        token = auth_header.split(' ', 1)[1].strip()
+        try:
+            _jwt_verificar_token(token, tipo='access')
+        except jwt.ExpiredSignatureError:
+            return JsonResponse(
+                {'error': 'Token expirado. Solicita uno nuevo con /api/token/refresh/'},
+                status=401,
+            )
+        except jwt.PyJWTError as e:
+            return JsonResponse({'error': f'Token invalido: {str(e)}'}, status=401)
 
-def generar_pdf_analisis(request, pk):
-    analisis     = get_object_or_404(Analisis, pk=pk)
-    detalles     = _construir_detalles_analisis(analisis)
+    analisis = get_object_or_404(Analisis, pk=pk)
+    detalles  = _construir_detalles_analisis(analisis)
     archivo_path = generar_pdf_reporte(detalles)
+
     return FileResponse(
         open(archivo_path, 'rb'),
         content_type='application/pdf',
-        filename=f"analisis_{pk}.pdf"
+        filename=f"analisis_{pk}.pdf",
     )
 
 
