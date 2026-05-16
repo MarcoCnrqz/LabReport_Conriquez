@@ -7,6 +7,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import cm
 from reportlab.lib import colors
+from reportlab.lib.utils import ImageReader
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfbase import pdfmetrics
 
@@ -126,6 +127,43 @@ def _truncar(texto, ancho_max_pt, font_name, font_size):
 
 
 # =============================================================================
+# HELPER: Convierte bytes de imagen a ImageReader apto para ReportLab
+# =============================================================================
+def _preparar_imagen(blob):
+    """
+    Abre los bytes de una imagen, la convierte a RGB (fondo blanco si tiene
+    transparencia) y devuelve un ImageReader listo para drawImage.
+
+    Problema que resuelve:
+      drawInlineImage falla silenciosamente con PNG RGBA (transparencia).
+      Usando drawImage + ImageReader el renderizado es confiable en todos los
+      formatos: PNG con/sin alpha, JPEG, WebP, etc.
+
+    Retorna (ImageReader, (ancho_px, alto_px)) o lanza excepción si falla.
+    """
+    img = Image.open(BytesIO(blob))
+
+    # Modo P (paleta) → RGBA primero para conservar canal alpha si existe
+    if img.mode == 'P':
+        img = img.convert('RGBA')
+
+    # RGBA / LA (con transparencia) → RGB con fondo blanco
+    if img.mode in ('RGBA', 'LA'):
+        fondo = Image.new('RGB', img.size, (255, 255, 255))
+        fondo.paste(img, mask=img.split()[-1])   # usa el canal alpha como máscara
+        img = fondo
+
+    # Cualquier otro modo que no sea RGB (ej: L, CMYK, YCbCr…)
+    elif img.mode != 'RGB':
+        img = img.convert('RGB')
+
+    buf = BytesIO()
+    img.save(buf, format='PNG')
+    buf.seek(0)
+    return ImageReader(buf), img.size
+
+
+# =============================================================================
 # 2. FUNCIÓN PRINCIPAL
 # =============================================================================
 def generar_pdf_reporte(detalles):
@@ -184,11 +222,15 @@ def generar_pdf_reporte(detalles):
     logo_data = detalles.get("laboratorio_logo")
     if logo_data:
         try:
-            img = Image.open(BytesIO(logo_data))
-            c.drawInlineImage(img, MARGEN_IZQ, y - 5*cm,
-                              width=3.2*cm, preserveAspectRatio=True)
-        except Exception:
-            pass
+            img_reader, (orig_w, orig_h) = _preparar_imagen(logo_data)
+            # Calcular alto proporcional al ancho fijo de 3.2 cm
+            logo_w = 3.2 * cm
+            logo_h = logo_w * orig_h / orig_w if orig_w else logo_w
+            c.drawImage(img_reader, MARGEN_IZQ, y - logo_h,
+                        width=logo_w, height=logo_h,
+                        preserveAspectRatio=True, mask='auto')
+        except Exception as e:
+            print(f"[PDF] ERROR dibujando logo del laboratorio: {type(e).__name__}: {e}")
 
     x_paciente = MARGEN_IZQ + 3.8 * cm
     _font(c, "Roboto-Bold", 10)
@@ -277,8 +319,7 @@ def generar_pdf_reporte(detalles):
 
         for blob in blobs_validos:
             try:
-                pil_img = Image.open(BytesIO(blob))
-                orig_w, orig_h = pil_img.size
+                img_reader, (orig_w, orig_h) = _preparar_imagen(blob)
                 if orig_w and orig_h:
                     scale  = min(img_w / orig_w, IMG_MAX_H / orig_h)
                     draw_w = orig_w * scale
@@ -286,17 +327,18 @@ def generar_pdf_reporte(detalles):
                 else:
                     draw_w, draw_h = img_w, IMG_MAX_H
 
-                c.drawInlineImage(
-                    pil_img,
+                c.drawImage(
+                    img_reader,
                     x_pos,
                     y - draw_h,
                     width=draw_w,
                     height=draw_h,
                     preserveAspectRatio=True,
+                    mask='auto',
                 )
                 alto_real_max = max(alto_real_max, draw_h)
             except Exception as e:
-                print(f"[PDF] Error al renderizar imagen resultado: {e}")
+                print(f"[PDF] ERROR al renderizar imagen resultado: {type(e).__name__}: {e}")
 
             # Avanzar al lado derecho si hay dos imágenes
             x_pos += IMG_MAX_W + 0.6 * cm
@@ -592,12 +634,12 @@ def generar_pdf_reporte(detalles):
     firma_bytes = detalles.get("quimico_firma_bytes")
     if firma_bytes:
         try:
-            firma_img = Image.open(BytesIO(firma_bytes))
-            c.drawInlineImage(firma_img, X_FIRMA, Y_FIRMA_BASE,
-                              width=FIRMA_W, height=FIRMA_H,
-                              preserveAspectRatio=True)
-        except Exception:
-            pass
+            firma_reader, (orig_w, orig_h) = _preparar_imagen(firma_bytes)
+            c.drawImage(firma_reader, X_FIRMA, Y_FIRMA_BASE,
+                        width=FIRMA_W, height=FIRMA_H,
+                        preserveAspectRatio=True, mask='auto')
+        except Exception as e:
+            print(f"[PDF] ERROR dibujando firma digital: {type(e).__name__}: {e}")
     else:
         c.setStrokeColor(colors.HexColor("#bbbbbb"))
         c.setDash(3, 3)
