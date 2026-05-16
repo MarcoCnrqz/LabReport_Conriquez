@@ -725,9 +725,15 @@ class AnalisisSerializer(serializers.ModelSerializer):
 # ======================================================
 
 class LaboratorioSimpleSerializer(serializers.ModelSerializer):
+    # logo se expone como URL absoluta de Cloudinary para que el cliente
+    # desktop pueda descargarla con _descargar_imagen_url() y guardarla
+    # como BLOB en la BD local. use_url=True es el comportamiento por defecto
+    # de ImageField en DRF cuando el archivo existe en un storage externo.
+    logo = Base64ImageField(max_length=None, use_url=True, required=False, allow_null=True)
+
     class Meta:
         model  = Laboratorio
-        fields = ['id', 'nombre_laboratorio']
+        fields = ['id', 'nombre_laboratorio', 'logo']
 
 
 # ======================================================
@@ -804,12 +810,16 @@ class LoginSerializer(serializers.Serializer):
 
 class UsuarioLoginResponseSerializer(serializers.ModelSerializer):
     correo = serializers.EmailField(source='correo_electronico')
+    # Se expone como URL de Cloudinary para que el cliente desktop
+    # pueda descargarla y guardarla como BLOB en la BD local.
+    firma_digital = Base64ImageField(max_length=None, use_url=True, required=False, allow_null=True)
 
     class Meta:
         model  = Usuario
         fields = [
             'id', 'nombre', 'correo', 'rol',
             'puesto', 'titulo_abreviado', 'cedula_profesional', 'is_active',
+            'firma_digital',
         ]
 
 
