@@ -132,15 +132,42 @@ def jwt_requerido(view_func):
 # ======================================================
 
 def _descargar_imagen_bytes(field):
+    """
+    Descarga los bytes de una imagen almacenada en Cloudinary.
+
+    Correcciones respecto a la versión anterior:
+    - Verifica explícitamente que el campo tenga un nombre/valor real,
+      no solo que sea truthy (un CloudinaryField vacío puede ser truthy).
+    - Loggea exactamente qué laboratorio/campo falla y por qué.
+    - Timeout aumentado a 20s para conexiones lentas a Cloudinary.
+    """
+    # ── Validación del campo ────────────────────────────────────────────────
+    # Un CloudinaryField vacío puede tener un valor truthy pero sin public_id.
+    # Revisamos el nombre (public_id) directamente para evitar falsos positivos.
     if not field:
         return None
+
+    nombre_campo = getattr(field, 'name', None) or getattr(field, 'public_id', None)
+    if not nombre_campo:
+        print(f"[IMG] Campo sin public_id — se omite (field={field!r})")
+        return None
+
+    # ── Descarga ─────────────────────────────────────────────────────────────
     try:
         url  = field.url
-        resp = http_requests.get(url, timeout=10)
+        print(f"[IMG] Descargando: {url}")
+        resp = http_requests.get(url, timeout=20)   # era 10 → 20 por si Cloudinary tarda
         resp.raise_for_status()
+        print(f"[IMG] OK — {len(resp.content):,} bytes — content-type: {resp.headers.get('content-type', '?')}")
         return resp.content
+    except http_requests.exceptions.Timeout:
+        print(f"[IMG] TIMEOUT al descargar '{nombre_campo}' (>20s) — se omite del PDF")
+        return None
+    except http_requests.exceptions.HTTPError as e:
+        print(f"[IMG] HTTP {e.response.status_code} al descargar '{nombre_campo}': {e}")
+        return None
     except Exception as e:
-        print(f"Error descargando imagen desde {getattr(field, 'name', '?')}: {e}")
+        print(f"[IMG] ERROR inesperado al descargar '{nombre_campo}': {type(e).__name__}: {e}")
         return None
 
 
@@ -344,7 +371,8 @@ def refresh_token_api(request):
     except jwt.PyJWTError as e:
         return Response({'error': f'Refresh token invalido: {str(e)}'}, status=status.HTTP_401_UNAUTHORIZED)
 
-    nuevo_access = _jwt_crear_token(payload['user_id'], 'access')
+    nuevo_access = _jwt_crear_token(payload['user_id'], 'access')\
+    
     return Response({'access_token': nuevo_access}, status=status.HTTP_200_OK)
 
 
@@ -436,12 +464,51 @@ def _construir_detalles_analisis(analisis):
       Se lee desde ResultadoAnalisis.seccion (guardado por el admin al crear
       el análisis desde el picker JS). Ya no se pierde la sección al guardar.
     """
-    paciente    = analisis.paciente
-    laboratorio = paciente.laboratorio if hasattr(paciente, 'laboratorio') else None
-    quimico     = analisis.creado_por
+    # ── Paciente y laboratorio ───────────────────────────────────────────────
+    #
+    # CORRECCIÓN: antes se usaba `hasattr(paciente, 'laboratorio')` que SIEMPRE
+    # devuelve True porque el campo existe en el modelo, aunque su valor sea None.
+    # Ahora accedemos directamente con un try/except y loggeamos si falla.
+    #
+    paciente = analisis.paciente
+    quimico  = analisis.creado_por
 
-    logo_bytes  = _descargar_imagen_bytes(laboratorio.logo if laboratorio else None)
-    firma_bytes = _descargar_imagen_bytes(quimico.firma_digital if quimico else None)
+    try:
+        laboratorio = paciente.laboratorio  # ForeignKey directo en Paciente
+    except Exception as e:
+        print(f"[PDF] ERROR al acceder a paciente.laboratorio (paciente_id={paciente.pk}): {e}")
+        laboratorio = None
+
+    # ── Log de diagnóstico ───────────────────────────────────────────────────
+    # Estos prints aparecen en los logs de Render y permiten identificar
+    # exactamente por qué falla el logo de un laboratorio específico.
+    if laboratorio:
+        logo_field      = laboratorio.logo
+        logo_nombre     = getattr(logo_field, 'name', None) or getattr(logo_field, 'public_id', None)
+        logo_tiene_valor = bool(logo_nombre)
+        print(
+            f"[PDF] Laboratorio: '{laboratorio.nombre_laboratorio}' (id={laboratorio.pk}) | "
+            f"logo={'✓ ' + logo_nombre if logo_tiene_valor else '✗ SIN LOGO'}"
+        )
+        if logo_tiene_valor:
+            try:
+                print(f"[PDF] Logo URL: {logo_field.url}")
+            except Exception as e:
+                print(f"[PDF] ERROR generando URL del logo: {e}")
+    else:
+        print(f"[PDF] Paciente id={paciente.pk} sin laboratorio asignado")
+
+    if quimico:
+        firma_field  = quimico.firma_digital
+        firma_nombre = getattr(firma_field, 'name', None) or getattr(firma_field, 'public_id', None)
+        print(
+            f"[PDF] Quimico: '{quimico.nombre}' (id={quimico.pk}) | "
+            f"firma={'✓ ' + firma_nombre if firma_nombre else '✗ SIN FIRMA'}"
+        )
+
+    # ── Descarga de imágenes ─────────────────────────────────────────────────
+    logo_bytes  = _descargar_imagen_bytes(laboratorio.logo  if laboratorio else None)
+    firma_bytes = _descargar_imagen_bytes(quimico.firma_digital if quimico   else None)
 
     imagen_bytes1 = None
     imagen_bytes2 = None
@@ -618,13 +685,15 @@ def _construir_detalles_analisis(analisis):
 # PDF — VISTAS
 # ======================================================
 
-# DESPUÉS — acepta sesión Django Admin Y JWT
 @require_GET
 def generar_pdf_analisis(request, pk):
     """
     Permite acceso desde dos contextos:
       1. Django Admin (browser): cookie de sesión, request.user.is_staff = True
       2. API / tests:            header Authorization: Bearer <token>
+
+    CORRECCIÓN: se agrega select_related para evitar N+1 queries al acceder
+    a paciente → laboratorio → logo dentro de _construir_detalles_analisis.
     """
     via_sesion = (
         hasattr(request, 'user')
@@ -650,8 +719,19 @@ def generar_pdf_analisis(request, pk):
         except jwt.PyJWTError as e:
             return JsonResponse({'error': f'Token invalido: {str(e)}'}, status=401)
 
-    analisis = get_object_or_404(Analisis, pk=pk)
-    detalles  = _construir_detalles_analisis(analisis)
+    # CORRECCIÓN: select_related trae el paciente y su laboratorio en una sola
+    # query, evitando N+1 y garantizando que el objeto laboratorio esté cargado.
+    analisis = get_object_or_404(
+        Analisis.objects.select_related(
+            'paciente',
+            'paciente__laboratorio',   # ← trae el lab del paciente de una vez
+            'creado_por',
+            'plantilla',
+        ),
+        pk=pk,
+    )
+
+    detalles     = _construir_detalles_analisis(analisis)
     archivo_path = generar_pdf_reporte(detalles)
 
     return FileResponse(
