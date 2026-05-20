@@ -550,11 +550,31 @@ class AnalisisSerializer(serializers.ModelSerializer):
     LECTURA (GET):
       - resultados anidados con nombre_propiedad, valor, unidad
 
+    IMÁGENES (plantilla tipo IMAGENES_RESULTADOS):
+      - imagen_resultado1/2 se declaran como Base64ImageField para que:
+          ESCRITURA: el cliente envíe base64 data-URI → se sube a Cloudinary
+          LECTURA:   se devuelva la URL de Cloudinary (use_url=True)
+      - Sin esta declaración, DRF usaría el serializador por defecto de
+        CloudinaryField, que no acepta base64 como entrada.
+
     ALINEACIÓN CON DJANGO:
       - loinc_code en ResultadoAnalisis se obtiene de PlantillaPropiedad,
         NO de Propiedad (que no tiene esa FK en el modelo).
     """
     resultados = ResultadoSerializer(many=True, read_only=True)
+
+    # FIX CRÍTICO: declarar imagen_resultado1/2 como Base64ImageField.
+    # models.py: CloudinaryField('image', null=True, blank=True)
+    # Sin esta declaración, DRF usa el serializador por defecto del
+    # CloudinaryField que espera un archivo (multipart), NO base64.
+    # El cliente escr. envía: "imagen_resultado1": "data:image/jpeg;base64,..."
+    # use_url=True → en GET devuelve la URL de Cloudinary, no el public_id.
+    imagen_resultado1 = Base64ImageField(
+        max_length=None, use_url=True, required=False, allow_null=True
+    )
+    imagen_resultado2 = Base64ImageField(
+        max_length=None, use_url=True, required=False, allow_null=True
+    )
 
     nombres_propiedades_extra = serializers.ListField(
         child=serializers.CharField(),
@@ -602,76 +622,126 @@ class AnalisisSerializer(serializers.ModelSerializer):
             return None
 
     def create(self, validated_data):
+        from django.db import transaction
+        from django.db.utils import DataError as DjangoDataError
+
         # FIX: 'resultados_input' ya no tiene source='resultados', se extrae por su nombre.
         resultados_data   = validated_data.pop('resultados_input', [])
         nombres_extra     = validated_data.pop('nombres_propiedades_extra', [])
         nombres_excluidas = validated_data.pop('nombres_propiedades_excluidas', [])
 
-        # _desde_api se asigna DESPUÉS de construir el objeto, no como kwarg
-        # (pasarlo en validated_data causaría TypeError en el constructor de Django)
-        analisis = Analisis(**validated_data)
-        analisis._desde_api = True
-        analisis.save()
+        # FIX: fecha_analisis — normalizar a solo fecha (DATE) por si el cliente
+        # envía un string datetime completo "YYYY-MM-DD HH:MM:SS".
+        # Si el modelo usa DateField, PostgreSQL rechaza el componente de hora.
+        if 'fecha_analisis' in validated_data and validated_data['fecha_analisis']:
+            fecha_val = validated_data['fecha_analisis']
+            if hasattr(fecha_val, 'date'):          # es datetime → quitar hora
+                validated_data['fecha_analisis'] = fecha_val.date()
 
-        if nombres_extra:
-            analisis.propiedades_extra.set(
-                Propiedad.objects.filter(nombre_propiedad__in=nombres_extra)
-            )
-        if nombres_excluidas:
-            analisis.propiedades_excluidas.set(
-                Propiedad.objects.filter(nombre_propiedad__in=nombres_excluidas)
-            )
+        # FIX: hora_toma — garantizar que sea string "HH:MM:SS" si el modelo usa
+        # TimeField. DRF acepta el objeto time ya parseado; si llega como string
+        # "HH:MM" sin segundos lo dejamos así (DRF lo parsea bien).
 
-        for res_data in resultados_data:
-            nombre_prop = (res_data.get('nombre_propiedad') or '').strip()
-            valor       = res_data.get('valor', '')
-            unidad      = res_data.get('unidad', '')
+        try:
+            with transaction.atomic():
+                # FIX: propiedades_excluidas es ManyToManyField sin through-model.
+                # Con fields='__all__', DRF puede incluirlo en validated_data como
+                # lista vacía cuando el cliente no lo envía (default de ManyRelatedField).
+                # Pasarlo a Analisis(**validated_data) falla con:
+                # "Direct assignment to M2M is prohibited. Use .set() instead."
+                # Lo extraemos aquí para pasarlo con .set() después del .save().
+                excluidas_desde_payload = validated_data.pop('propiedades_excluidas', None)
 
-            if not nombre_prop:
-                continue
+                # _desde_api se asigna DESPUÉS de construir el objeto, no como kwarg
+                # (pasarlo en validated_data causaría TypeError en el constructor de Django)
+                analisis = Analisis(**validated_data)
+                analisis._desde_api = True
+                analisis.save()
 
-            try:
-                propiedad_obj, creada = Propiedad.objects.get_or_create(
-                    nombre_propiedad__iexact=nombre_prop,
-                    defaults={
-                        'nombre_propiedad': nombre_prop,
-                        'unidad':           unidad or '',
-                    }
-                )
-            except IntegrityError:
-                propiedad_obj = Propiedad.objects.filter(
-                    nombre_propiedad__iexact=nombre_prop
-                ).first()
-                if not propiedad_obj:
-                    continue
-                creada = False
+                if nombres_extra:
+                    analisis.propiedades_extra.set(
+                        Propiedad.objects.filter(nombre_propiedad__in=nombres_extra)
+                    )
+                # Combinar excluidas del payload con las del campo nombres_propiedades_excluidas
+                excluidas_qs = Propiedad.objects.filter(nombre_propiedad__in=nombres_excluidas) if nombres_excluidas else None
+                if excluidas_desde_payload is not None:
+                    analisis.propiedades_excluidas.set(excluidas_desde_payload)
+                elif excluidas_qs is not None:
+                    analisis.propiedades_excluidas.set(excluidas_qs)
 
-            if creada:
-                print(f"  [Serializer] Propiedad on-the-fly: '{nombre_prop}'")
+                for res_data in resultados_data:
+                    nombre_prop = (res_data.get('nombre_propiedad') or '').strip()
+                    valor       = str(res_data.get('valor') or '')
+                    unidad      = str(res_data.get('unidad') or '')
 
-            nombre_para_guardar = nombre_prop or propiedad_obj.nombre_propiedad
+                    if not nombre_prop:
+                        continue
 
-            # loinc_code viene de PlantillaPropiedad, no de Propiedad
-            loinc_obj = self._obtener_loinc_para_resultado(analisis, propiedad_obj)
+                    # FIX: truncar al max_length real del modelo para evitar DataError
+                    # Propiedad.nombre_propiedad  max_length=100
+                    # ResultadoAnalisis.valor      max_length=100
+                    # ResultadoAnalisis.unidad     max_length=20
+                    # Propiedad.unidad             max_length=20
+                    nombre_prop = nombre_prop[:100]
+                    valor       = valor[:100]
+                    unidad      = unidad[:20]
 
-            resultado_obj, created = ResultadoAnalisis.objects.get_or_create(
-                analisis=analisis,
-                propiedad=propiedad_obj,
-                defaults={
-                    'loinc_code':       loinc_obj,
-                    'nombre_propiedad': nombre_para_guardar,
-                    'valor':            valor,
-                    'unidad':           unidad or propiedad_obj.unidad or '',
-                }
-            )
+                    try:
+                        propiedad_obj = Propiedad.objects.filter(
+                            nombre_propiedad__iexact=nombre_prop
+                        ).first()
 
-            if not created:
-                resultado_obj.valor = valor
-                if unidad:
-                    resultado_obj.unidad = unidad
-                if nombre_para_guardar:
-                    resultado_obj.nombre_propiedad = nombre_para_guardar
-                resultado_obj.save()
+                        if not propiedad_obj:
+                            # Propiedad.unidad max_length=20
+                            propiedad_obj = Propiedad.objects.create(
+                                nombre_propiedad=nombre_prop,
+                                unidad=(unidad or '')[:20],
+                            )
+                            print(f"  [Serializer] Propiedad on-the-fly: '{nombre_prop}'")
+
+                    except (IntegrityError, DjangoDataError) as e:
+                        propiedad_obj = Propiedad.objects.filter(
+                            nombre_propiedad__iexact=nombre_prop
+                        ).first()
+                        if not propiedad_obj:
+                            print(f"  [Serializer] ⚠️ Propiedad '{nombre_prop}' — skip: {e}")
+                            continue
+
+                    nombre_para_guardar = nombre_prop or propiedad_obj.nombre_propiedad
+
+                    # loinc_code viene de PlantillaPropiedad, no de Propiedad
+                    loinc_obj = self._obtener_loinc_para_resultado(analisis, propiedad_obj)
+
+                    # Respetar max_length de ResultadoAnalisis.nombre_propiedad (100)
+                    # y ResultadoAnalisis.unidad (20)
+                    unidad_resultado = (unidad or propiedad_obj.unidad or '')[:20]
+                    nombre_guardar   = nombre_para_guardar[:100]
+
+                    resultado_obj, created = ResultadoAnalisis.objects.get_or_create(
+                        analisis=analisis,
+                        propiedad=propiedad_obj,
+                        defaults={
+                            'loinc_code':       loinc_obj,
+                            'nombre_propiedad': nombre_guardar,
+                            'valor':            valor,
+                            'unidad':           unidad_resultado,
+                        }
+                    )
+
+                    if not created:
+                        resultado_obj.valor = valor
+                        if unidad:
+                            resultado_obj.unidad = unidad_resultado
+                        if nombre_guardar:
+                            resultado_obj.nombre_propiedad = nombre_guardar
+                        resultado_obj.save()
+
+        except DjangoDataError as e:
+            # Relanzar como error de validación para que DRF devuelva 400 (no 500)
+            raise serializers.ValidationError({
+                'error': f'Error de datos al guardar el análisis: {e}',
+                'hint':  'Verifica el formato de fecha, hora, o longitud de los valores.',
+            })
 
         return analisis
 
@@ -883,28 +953,15 @@ class AnalisisBusquedaSerializer(serializers.ModelSerializer):
     en lugar del ID entero que genera AnalisisSerializer por defecto.
     El cliente local necesita el título para crear/encontrar la plantilla en su
     BD SQLite (los IDs de la nube y local no coinciden).
-
-    FIX 2: imagen_resultado1/2 se exponen como URL absoluta de Cloudinary
-    (use_url=True) para que el cliente desktop pueda descargarlas con
-    descargar_imagen_desde_url() y guardarlas como BLOB en la BD local.
     """
     plantilla  = PlantillaSimpleSerializer(read_only=True)
     resultados = ResultadoBusquedaSerializer(many=True, read_only=True)
-
-    # Exponer las imágenes como URLs de Cloudinary para descarga en el cliente
-    imagen_resultado1 = Base64ImageField(
-        max_length=None, use_url=True, required=False, allow_null=True
-    )
-    imagen_resultado2 = Base64ImageField(
-        max_length=None, use_url=True, required=False, allow_null=True
-    )
 
     class Meta:
         model  = Analisis
         fields = [
             'id', 'plantilla', 'fecha_muestra', 'fecha_analisis',
             'hora_toma', 'status', 'resultados',
-            'imagen_resultado1', 'imagen_resultado2',
         ]
 
 

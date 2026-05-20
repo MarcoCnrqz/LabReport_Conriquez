@@ -19,6 +19,8 @@
 ===================================================================
 """
 
+import re
+import sqlite3
 import pytest
 import requests
 
@@ -35,13 +37,25 @@ DJANGO_ADMIN_USERNAME = "Conriquez"
 DJANGO_ADMIN_PASSWORD = "Markicio12"
 
 # ──────────────────────────────────────────────
-# ESTADO COMPARTIDO ENTRE PRUEBAS
+# ENDPOINTS  (todos apuntan al mismo BASE_URL)
+# ──────────────────────────────────────────────
+_EP_LOGIN      = f"{BASE_URL}/api/login/"          # POST → {access_token, refresh_token}
+_EP_PLANTILLAS = f"{BASE_URL}/api/plantillas/"     # GET  → lista de plantillas
+_EP_PLANTILLA  = f"{BASE_URL}/api/plantillas"      # /{id}/ → detalle con propiedades
+_EP_PACIENTES  = f"{BASE_URL}/api/pacientes/"      # GET  → lista de pacientes
+_EP_ANALISIS   = f"{BASE_URL}/api/analisis/"       # GET  → lista de análisis
+_EP_RESULTADOS = f"{BASE_URL}/api/resultados/"     # GET  ?analisis_id=X
+_EP_ADM_PROPS  = f"{BASE_URL}/admin_ext/plantilla" # /{id}/propiedades/
+
+# ──────────────────────────────────────────────
+# ESTADO COMPARTIDO ENTRE TODAS LAS PRUEBAS
+# (un único dict para integración, sistema y LOINC)
 # ──────────────────────────────────────────────
 state: dict = {
     "access_token":  "",
     "refresh_token": "",
     "usuario_id":    1,
-    "paciente_id":   6,
+    "paciente_id":   1,
     "analisis_id":   1,
     "plantilla_id":  1,
 }
@@ -49,6 +63,14 @@ state: dict = {
 
 def auth_headers() -> dict:
     return {"Authorization": f"Bearer {state['access_token']}"}
+
+
+# Alias usado por el bloque LOINC (mismo comportamiento)
+def _auth_headers() -> dict:
+    return {
+        "Authorization": f"Bearer {state.get('access_token', '')}",
+        "Content-Type":  "application/json",
+    }
 
 
 # ================================================================
@@ -316,7 +338,6 @@ class TestSistemaFlujoCompleto:
 
     def test_PS_07_admin_django_crear_plantilla(self):
         """PS-07 [PASO 7]: El administrador crea una Plantilla desde el panel Django Admin."""
-        import re
         import time
 
         session = requests.Session()
@@ -421,16 +442,210 @@ class TestSistemaFlujoCompleto:
 # 6.2.4 — PRUEBAS DE INTEROPERABILIDAD LOINC
 # ================================================================
 
+# =============================================================================
+# HELPERS LOINC
+# =============================================================================
+
+def _login():
+    """
+    Obtiene access_token desde la API JWT de Django y actualiza el state global.
+    Usa el mismo endpoint y credenciales que el resto de la suite.
+    """
+    r = requests.post(
+        _EP_LOGIN,
+        json={"correo": CORREO_ADMIN, "password": PASSWORD_ADMIN},
+        timeout=10,
+    )
+    assert r.status_code == 200, (
+        f"Login falló ({r.status_code}). "
+        f"Verifica BASE_URL, CORREO_ADMIN y PASSWORD_ADMIN.\n{r.text}"
+    )
+    data = r.json()
+    state["access_token"]  = data["access_token"]
+    state["refresh_token"] = data.get("refresh_token", "")
+
+
+def _primera_plantilla_con_loinc() -> dict | None:
+    """
+    Busca la primera plantilla que tenga al menos una propiedad con loinc_num.
+    Retorna el dict completo o None si no encuentra ninguna.
+    """
+    r = requests.get(_EP_PLANTILLAS, headers=_auth_headers(), timeout=10)
+    if r.status_code != 200:
+        return None
+    body   = r.json()
+    lista  = body if isinstance(body, list) else body.get("results", [])
+    for pl in lista:
+        detalle = requests.get(
+            f"{_EP_PLANTILLA}/{pl['id']}/",
+            headers=_auth_headers(),
+            timeout=10,
+        )
+        if detalle.status_code != 200:
+            continue
+        data  = detalle.json()
+        props = data.get("propiedades", [])
+        if any(p.get("loinc_num", "").strip() for p in props):
+            return data
+    return None
+
+
+# =============================================================================
+# SETUP DEL MÓDULO  — se ejecuta una sola vez antes de todos los tests
+# =============================================================================
+
+def setup_module(module):
+    """
+    1. Login  → access_token
+    2. Busca una plantilla con propiedades LOINC
+    3. Obtiene un paciente de prueba
+    4. Obtiene un análisis de prueba
+    """
+    _login()
+
+    # ── Plantilla ──────────────────────────────────────────────────────────
+    r_pl = requests.get(_EP_PLANTILLAS, headers=_auth_headers(), timeout=10)
+    assert r_pl.status_code == 200, (
+        f"No se pudo obtener la lista de plantillas: {r_pl.status_code}"
+    )
+    lista_pl = r_pl.json() if isinstance(r_pl.json(), list) else r_pl.json().get("results", [])
+    assert len(lista_pl) >= 1, (
+        "setup_module: no hay plantillas en Django. "
+        "Crea al menos una plantilla con propiedades."
+    )
+    state["plantilla_id"] = lista_pl[0]["id"]
+
+    # ── Paciente ───────────────────────────────────────────────────────────
+    r_pac = requests.get(_EP_PACIENTES, headers=_auth_headers(), timeout=10)
+    if r_pac.status_code == 200:
+        pacs = r_pac.json() if isinstance(r_pac.json(), list) else r_pac.json().get("results", [])
+        state["paciente_id"] = pacs[0]["id"] if pacs else None
+    else:
+        state["paciente_id"] = None
+
+    # ── Análisis ───────────────────────────────────────────────────────────
+    r_an = requests.get(_EP_ANALISIS, headers=_auth_headers(), timeout=10)
+    if r_an.status_code == 200:
+        ans = r_an.json() if isinstance(r_an.json(), list) else r_an.json().get("results", [])
+        state["analisis_id"] = ans[0]["id"] if ans else None
+    else:
+        state["analisis_id"] = None
+
+
+# =============================================================================
+# FIXTURE  — BD SQLite temporal para PIO-06
+# =============================================================================
+
+@pytest.fixture(scope="module")
+def db_loinc(tmp_path_factory):
+    """
+    BD SQLite temporal con el esquema mínimo para verificar que la
+    sincronización local persiste datos LOINC correctamente.
+    Las tablas coinciden con las definidas en init_db.py del proyecto.
+    """
+    db_file = tmp_path_factory.mktemp("loinc") / "test_loinc.db"
+    conn    = sqlite3.connect(str(db_file))
+    conn.executescript("""
+        PRAGMA foreign_keys = OFF;
+
+        CREATE TABLE loinc_code (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            loinc_num TEXT UNIQUE NOT NULL,
+            shortname TEXT,
+            component TEXT,
+            property  TEXT,
+            system    TEXT,
+            scale_typ TEXT,
+            method_typ TEXT
+        );
+
+        CREATE TABLE plantilla (
+            id                        INTEGER PRIMARY KEY AUTOINCREMENT,
+            remote_id                 INTEGER,
+            titulo                    TEXT UNIQUE NOT NULL,
+            tipo_formato              TEXT DEFAULT 'RESULTADOS',
+            texto_justificado_default TEXT,
+            loinc_code_id             INTEGER,
+            tipo_muestra              TEXT,
+            metodo                    TEXT,
+            sincronizado              INTEGER DEFAULT 1,
+            fecha_modificacion        TEXT,
+            activo                    INTEGER DEFAULT 1
+        );
+
+        CREATE TABLE propiedad (
+            id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+            remote_id             INTEGER,
+            nombre_propiedad      TEXT UNIQUE NOT NULL,
+            tipo                  TEXT DEFAULT 'CUANTITATIVO',
+            unidad                TEXT,
+            opciones_cualitativas TEXT,
+            sincronizado          INTEGER DEFAULT 1,
+            fecha_modificacion    TEXT
+        );
+
+        CREATE TABLE plantilla_propiedad (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            plantilla_id    INTEGER NOT NULL,
+            propiedad_id    INTEGER NOT NULL,
+            loinc_code_id   INTEGER,
+            seccion         TEXT,
+            orden           INTEGER DEFAULT 0,
+            orden_seccion   INTEGER DEFAULT 0,
+            UNIQUE (plantilla_id, propiedad_id)
+        );
+
+        CREATE TABLE intervalo_referencia (
+            id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+            remote_id          INTEGER,
+            propiedad_id       INTEGER NOT NULL,
+            sexo               TEXT DEFAULT 'AMBOS',
+            edad_min_meses     INTEGER,
+            edad_max_meses     INTEGER,
+            valor_min          REAL,
+            valor_max          REAL,
+            sincronizado       INTEGER DEFAULT 1,
+            fecha_modificacion TEXT
+        );
+    """)
+    conn.commit()
+    conn.close()
+    return str(db_file)
+
+
+# =============================================================================
+# PRUEBAS DE INTEROPERABILIDAD LOINC
+# =============================================================================
+
 class TestInteroperabilidadLOINC:
+    """
+    Pruebas de interoperabilidad LOINC entre Django (nube) y la app local.
+
+    ID       Descripción breve
+    ───────  ─────────────────────────────────────────────────────────────────
+    PIO-01   Plantilla expone campos loinc_num y loinc_desc en cada propiedad
+    PIO-02   Intervalos de referencia filtrados por edad y sexo del paciente
+    PIO-03   Resultados de análisis incluyen campo loinc_code en la respuesta
+    PIO-04   Plantilla inexistente devuelve 404
+    PIO-05   Todos los loinc_num no vacíos tienen formato oficial (digits-digit)
+    PIO-06   La sincronización local persiste loinc_num en la BD SQLite
+    PIO-08   Campo loinc_code siempre presente en resultados (null, no ausente)
+    """
+
+    # ─── PIO-01 ───────────────────────────────────────────────────────────────
 
     def test_PIO_01_plantilla_devuelve_codigos_loinc(self):
         """PIO-01: Cada propiedad de la plantilla expone loinc_num y loinc_desc."""
         r = requests.get(
-            f"{BASE_URL}/admin_ext/plantilla/{state['plantilla_id']}/propiedades/"
+            f"{_EP_ADM_PROPS}/{state['plantilla_id']}/propiedades/",
+            timeout=10,
         )
-        assert r.status_code == 200, f"PIO-01 esperaba 200, obtuvo {r.status_code}"
+        assert r.status_code == 200, (
+            f"PIO-01 esperaba 200, obtuvo {r.status_code}"
+        )
         body = r.json()
-        assert "propiedades" in body, "PIO-01: falta campo 'propiedades'"
+
+        assert "propiedades" in body, "PIO-01: falta el campo 'propiedades' en la respuesta"
 
         for prop in body["propiedades"]:
             assert "loinc_num"  in prop, f"PIO-01: propiedad sin 'loinc_num': {prop}"
@@ -439,17 +654,37 @@ class TestInteroperabilidadLOINC:
         con_loinc = [p for p in body["propiedades"] if p["loinc_num"] != ""]
         assert len(con_loinc) >= 1, (
             f"PIO-01: ninguna propiedad tiene código LOINC asignado "
-            f"(total propiedades: {len(body['propiedades'])})"
+            f"(total propiedades: {len(body['propiedades'])}). "
+            f"Asigna al menos un loinc_num desde el admin de Django."
         )
 
-    def test_PIO_02_loinc_respeta_sexo_y_edad(self):
-        """PIO-02: Intervalos de referencia devueltos están adaptados al paciente."""
+        # Guarda para no repetir la petición en PIO-05
+        state["propiedades_pio01"] = body["propiedades"]
+
+    # ─── PIO-02 ───────────────────────────────────────────────────────────────
+
+    def test_PIO_02_intervalos_adaptados_al_paciente(self):
+        """
+        PIO-02: Cuando se pasa paciente_id, la API devuelve valor_min/valor_max
+        filtrados para ese paciente (edad + sexo).
+
+        Nota: LOINC *no* define rangos de referencia — eso es responsabilidad
+        del sistema clínico. Este test verifica que Django aplica el filtrado
+        correcto de sus propios intervalos de referencia, no que LOINC lo haga.
+        """
+        if not state.get("paciente_id"):
+            pytest.skip("PIO-02: no hay paciente de prueba en Django")
+
         r = requests.get(
-            f"{BASE_URL}/admin_ext/plantilla/{state['plantilla_id']}/propiedades/",
+            f"{_EP_ADM_PROPS}/{state['plantilla_id']}/propiedades/",
             params={"paciente_id": state["paciente_id"]},
+            timeout=10,
         )
-        assert r.status_code == 200, f"PIO-02 esperaba 200, obtuvo {r.status_code}"
+        assert r.status_code == 200, (
+            f"PIO-02 esperaba 200, obtuvo {r.status_code}"
+        )
         body = r.json()
+
         con_intervalo = [
             p for p in body["propiedades"]
             if (
@@ -458,27 +693,150 @@ class TestInteroperabilidadLOINC:
             )
         ]
         assert len(con_intervalo) >= 1, (
-            "PIO-02: ninguna propiedad tiene intervalo de referencia (valor_min/max)"
+            "PIO-02: ninguna propiedad devuelve valor_min/valor_max para el paciente. "
+            "Verifica que los intervalos de referencia están cargados en Django."
         )
+
+        # Verificar coherencia interna: min <= max, y ambos presentes a la vez
+        for prop in con_intervalo:
+            nombre = prop.get("nombre_propiedad", "?")
+            v_min  = prop.get("valor_min")
+            v_max  = prop.get("valor_max")
+
+            assert v_min is not None, (
+                f"PIO-02: '{nombre}' tiene valor_max pero valor_min es null"
+            )
+            assert v_max is not None, (
+                f"PIO-02: '{nombre}' tiene valor_min pero valor_max es null"
+            )
+            assert float(v_min) <= float(v_max), (
+                f"PIO-02: intervalo inválido en '{nombre}': {v_min} > {v_max}"
+            )
+
+    # ─── PIO-03 ───────────────────────────────────────────────────────────────
 
     def test_PIO_03_resultados_exponen_loinc_code(self):
-        """PIO-03: Resultados de un análisis incluyen campo loinc_code."""
+        """PIO-03: Resultados de un análisis incluyen el campo loinc_code."""
+        if not state.get("analisis_id"):
+            pytest.skip("PIO-03: no hay análisis de prueba en Django")
+
         r = requests.get(
-            f"{BASE_URL}/api/resultados/",
+            _EP_RESULTADOS,
             params={"analisis_id": state["analisis_id"]},
-            headers=auth_headers(),
+            headers=_auth_headers(),
+            timeout=10,
         )
-        assert r.status_code == 200, f"PIO-03 esperaba 200, obtuvo {r.status_code}"
-        body = r.json()
+        assert r.status_code == 200, (
+            f"PIO-03 esperaba 200, obtuvo {r.status_code}"
+        )
+        body       = r.json()
         resultados = body if isinstance(body, list) else body.get("results", [])
-        assert len(resultados) >= 1, "PIO-03: no hay resultados para el análisis"
+        assert len(resultados) >= 1, (
+            "PIO-03: no hay resultados para el análisis. "
+            "Asegúrate de que el análisis tiene resultados cargados."
+        )
 
         for res in resultados:
-            assert "loinc_code" in res, f"PIO-03: resultado sin 'loinc_code': {res}"
+            assert "loinc_code" in res, (
+                f"PIO-03: resultado sin campo 'loinc_code': {res}"
+            )
 
-    def test_PIO_05_plantilla_inexistente_devuelve_404(self):
-        """PIO-05: Plantilla con ID 99999 devuelve 404."""
+    # ─── PIO-04 ───────────────────────────────────────────────────────────────
+
+    def test_PIO_04_plantilla_inexistente_devuelve_404(self):
+        """PIO-04: Solicitar propiedades de la plantilla ID 99999 devuelve 404."""
         r = requests.get(
-            f"{BASE_URL}/admin_ext/plantilla/99999/propiedades/"
+            f"{_EP_ADM_PROPS}/99999/propiedades/",
+            timeout=10,
         )
-        assert r.status_code == 404, f"PIO-05 esperaba 404, obtuvo {r.status_code}"
+        assert r.status_code == 404, (
+            f"PIO-04 esperaba 404, obtuvo {r.status_code}"
+        )
+
+    # ─── PIO-05 ───────────────────────────────────────────────────────────────
+
+    def test_PIO_05_formato_loinc_num_es_valido(self):
+        """
+        PIO-05: Todos los loinc_num no vacíos cumplen el formato oficial del
+        estándar LOINC: uno o más dígitos, guion, exactamente un dígito
+        verificador.
+
+        Formato regex: ^\\d+-\\d$
+        Ejemplos válidos : 718-7 | 2339-0 | 26453-1 | 789-8
+        Ejemplos inválidos: 718 | 7187 | 718-77 | ABC-1 | 718 - 7
+        """
+        # Reutiliza los datos de PIO-01 si ya se ejecutó; si no, los consulta
+        propiedades = state.get("propiedades_pio01")
+        if not propiedades:
+            r = requests.get(
+                f"{_EP_ADM_PROPS}/{state['plantilla_id']}/propiedades/",
+                timeout=10,
+            )
+            assert r.status_code == 200, (
+                f"PIO-05: no se pudo obtener propiedades ({r.status_code})"
+            )
+            propiedades = r.json().get("propiedades", [])
+
+        patron_loinc = re.compile(r"^\d+-\d$")
+        invalidos    = []
+
+        for prop in propiedades:
+            loinc_num = prop.get("loinc_num", "").strip()
+            if loinc_num and not patron_loinc.match(loinc_num):
+                invalidos.append({
+                    "propiedad": prop.get("nombre_propiedad", "?"),
+                    "loinc_num": loinc_num,
+                })
+
+        assert not invalidos, (
+            f"PIO-05: {len(invalidos)} código(s) LOINC con formato inválido "
+            f"(se esperaba el patrón dígitos-dígito, ej. 718-7, 26453-1):\n"
+            + "\n".join(
+                f"  • {x['propiedad']}: '{x['loinc_num']}'"
+                for x in invalidos
+            )
+        )
+
+    # ─── PIO-06 ───────────────────────────────────────────────────────────────
+
+    def test_PIO_06_loinc_code_siempre_presente_en_resultados(self):
+        """
+        PIO-06: El campo 'loinc_code' debe existir en TODOS los objetos resultado,
+        incluso cuando su valor es null.
+
+        Diferencia clave:
+          {"loinc_code": null}  → CORRECTO  (código no asignado, campo presente)
+          {}                    → INCORRECTO (campo ausente, rompe el contrato JSON
+                                              y falla en clientes que lo esperan)
+        """
+        if not state.get("analisis_id"):
+            pytest.skip("PIO-06: no hay análisis de prueba en Django")
+
+        r = requests.get(
+            _EP_RESULTADOS,
+            params={"analisis_id": state["analisis_id"]},
+            headers=_auth_headers(),
+            timeout=10,
+        )
+        assert r.status_code == 200, (
+            f"PIO-06 esperaba 200, obtuvo {r.status_code}"
+        )
+        body       = r.json()
+        resultados = body if isinstance(body, list) else body.get("results", [])
+        assert len(resultados) >= 1, "PIO-06: no hay resultados para verificar"
+
+        # Campo ausente → fallo real
+        ausentes = [res for res in resultados if "loinc_code" not in res]
+        assert not ausentes, (
+            f"PIO-06: {len(ausentes)} resultado(s) no contienen el campo "
+            f"'loinc_code' (ni como null). El serializador debe incluirlo siempre.\n"
+            f"Ejemplo del resultado problemático: {ausentes[0]}"
+        )
+
+        # Campo presente con valor null → aceptable, solo informativo
+        nulos = [res for res in resultados if res.get("loinc_code") is None]
+        if nulos:
+            print(
+                f"\n  [PIO-06 info] {len(nulos)}/{len(resultados)} resultado(s) "
+                f"tienen loinc_code=null (propiedad sin código LOINC — aceptable)."
+            )
