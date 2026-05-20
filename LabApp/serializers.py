@@ -883,15 +883,28 @@ class AnalisisBusquedaSerializer(serializers.ModelSerializer):
     en lugar del ID entero que genera AnalisisSerializer por defecto.
     El cliente local necesita el título para crear/encontrar la plantilla en su
     BD SQLite (los IDs de la nube y local no coinciden).
+
+    FIX 2: imagen_resultado1/2 se exponen como URL absoluta de Cloudinary
+    (use_url=True) para que el cliente desktop pueda descargarlas con
+    descargar_imagen_desde_url() y guardarlas como BLOB en la BD local.
     """
     plantilla  = PlantillaSimpleSerializer(read_only=True)
     resultados = ResultadoBusquedaSerializer(many=True, read_only=True)
+
+    # Exponer las imágenes como URLs de Cloudinary para descarga en el cliente
+    imagen_resultado1 = Base64ImageField(
+        max_length=None, use_url=True, required=False, allow_null=True
+    )
+    imagen_resultado2 = Base64ImageField(
+        max_length=None, use_url=True, required=False, allow_null=True
+    )
 
     class Meta:
         model  = Analisis
         fields = [
             'id', 'plantilla', 'fecha_muestra', 'fecha_analisis',
             'hora_toma', 'status', 'resultados',
+            'imagen_resultado1', 'imagen_resultado2',
         ]
 
 
