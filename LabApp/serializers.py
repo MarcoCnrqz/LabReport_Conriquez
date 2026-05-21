@@ -624,11 +624,18 @@ class AnalisisSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         from django.db import transaction
         from django.db.utils import DataError as DjangoDataError
+        import traceback
 
-        # FIX: 'resultados_input' ya no tiene source='resultados', se extrae por su nombre.
         resultados_data   = validated_data.pop('resultados_input', [])
         nombres_extra     = validated_data.pop('nombres_propiedades_extra', [])
         nombres_excluidas = validated_data.pop('nombres_propiedades_excluidas', [])
+
+        # ── FIX: extraer imágenes ANTES de la transacción ──────────────────────
+        # Cloudinary sube el archivo en analisis.save(). Si falla adentro de
+        # atomic() el rollback borra el análisis. Sacando las imágenes aquí
+        # se sube a Cloudinary fuera de la transacción de BD.
+        imagen1 = validated_data.pop('imagen_resultado1', None)
+        imagen2 = validated_data.pop('imagen_resultado2', None)
 
         # FIX: fecha_analisis — normalizar a solo fecha (DATE) por si el cliente
         # envía un string datetime completo "YYYY-MM-DD HH:MM:SS".
@@ -637,10 +644,6 @@ class AnalisisSerializer(serializers.ModelSerializer):
             fecha_val = validated_data['fecha_analisis']
             if hasattr(fecha_val, 'date'):          # es datetime → quitar hora
                 validated_data['fecha_analisis'] = fecha_val.date()
-
-        # FIX: hora_toma — garantizar que sea string "HH:MM:SS" si el modelo usa
-        # TimeField. DRF acepta el objeto time ya parseado; si llega como string
-        # "HH:MM" sin segundos lo dejamos así (DRF lo parsea bien).
 
         try:
             with transaction.atomic():
@@ -656,7 +659,7 @@ class AnalisisSerializer(serializers.ModelSerializer):
                 # (pasarlo en validated_data causaría TypeError en el constructor de Django)
                 analisis = Analisis(**validated_data)
                 analisis._desde_api = True
-                analisis.save()
+                analisis.save()   # ← sin imágenes; no hay riesgo de Cloudinary acá
 
                 if nombres_extra:
                     analisis.propiedades_extra.set(
@@ -742,6 +745,39 @@ class AnalisisSerializer(serializers.ModelSerializer):
                 'error': f'Error de datos al guardar el análisis: {e}',
                 'hint':  'Verifica el formato de fecha, hora, o longitud de los valores.',
             })
+        except Exception as e:
+            # ── FIX: atrapar cualquier excepción (incluyendo errores de Cloudinary)
+            # y devolverla como 400 en lugar de dejar que Django devuelva 500.
+            traceback.print_exc()
+            raise serializers.ValidationError({
+                'error': f'Error al guardar el análisis ({type(e).__name__}): {str(e)}',
+            })
+
+        # ── Subir imágenes a Cloudinary FUERA de la transacción ─────────────────
+        # Si falla la subida aquí, el análisis ya está guardado en BD y se puede
+        # reintentar subir las imágenes sin perder los resultados.
+        campos_img = []
+        if imagen1:
+            try:
+                analisis.imagen_resultado1 = imagen1
+                campos_img.append('imagen_resultado1')
+            except Exception as e:
+                print(f"  [Serializer] ⚠️ No se pudo asignar imagen1: {e}")
+        if imagen2:
+            try:
+                analisis.imagen_resultado2 = imagen2
+                campos_img.append('imagen_resultado2')
+            except Exception as e:
+                print(f"  [Serializer] ⚠️ No se pudo asignar imagen2: {e}")
+        if campos_img:
+            try:
+                analisis.save(update_fields=campos_img)
+                print(f"  [Serializer] ✅ Imágenes subidas a Cloudinary: {campos_img}")
+            except Exception as e:
+                traceback.print_exc()
+                print(f"  [Serializer] ❌ Cloudinary upload falló: {type(e).__name__}: {e}")
+                # No relanzar — el análisis está guardado aunque sin imágenes.
+                # El cliente puede reintentar o ver el análisis sin fotos.
 
         return analisis
 

@@ -171,11 +171,10 @@ CLOUDINARY_STORAGE = {
     'API_SECRET': os.environ.get('CLOUDINARY_API_SECRET'),
 }
 
-# ❌ ESTO YA NO DEBE IR (Forma antigua que causa el error):
-# DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
+
 
 # ======================================================================
-# ✅ CONFIGURACIÓN NUEVA (ESTO SOLUCIONA TU PROBLEMA)
+# CONFIGURACIÓN NUEVA (ESTO SOLUCIONA TU PROBLEMA)
 # ======================================================================
 
 STORAGES = {
@@ -274,3 +273,6 @@ if 'test' in sys.argv:
             'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage',
         },
     }
+
+# Límite default de Django es 2.5 MB — insuficiente para 2 fotos de celular en base64.
+DATA_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024   # 20 MB
