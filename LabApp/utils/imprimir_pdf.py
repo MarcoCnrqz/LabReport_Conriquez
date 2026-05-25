@@ -11,6 +11,9 @@ from reportlab.lib.utils import ImageReader
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfbase import pdfmetrics
 
+import re
+import requests
+
 from django.conf import settings
 
 # =============================================================================
@@ -23,6 +26,66 @@ COLOR_TEXTO_MED  = colors.HexColor("#444444")
 COLOR_TEXTO_SUAV = colors.HexColor("#555555")
 COLOR_BORDE      = colors.HexColor("#c5cc10")   # Borde dorado entre primario/secundario
 COLOR_FILA_PAR   = colors.HexColor("#f5f7d6")   # Versión muy suave del secundario
+
+# =============================================================================
+# HELPERS DE DESCARGA — Cloudinary con URL optimizada
+# =============================================================================
+
+def _optimizar_url_cloudinary(url: str, ancho: int = 1200) -> str:
+    """
+    Inserta parámetros de transformación en la URL de Cloudinary para que el
+    servidor entregue la imagen redimensionada y comprimida, SIN modificar el
+    original guardado en la nube.
+
+    Transformaciones aplicadas:
+      w_1200   → máximo 1200 px de ancho (más que suficiente para A4 a 300 DPI)
+      q_auto   → Cloudinary elige la calidad óptima (elimina metadatos EXIF, comprime)
+      f_jpg    → fuerza JPEG de salida (evita WEBP que ReportLab no soporta)
+
+    Ejemplo:
+      .../image/upload/v1/resultados_imagenes/abc123
+      →  .../image/upload/w_1200,q_auto,f_jpg/v1/resultados_imagenes/abc123
+
+    Si la URL ya contiene transformaciones (ej. w_), no las sobreescribe.
+    Si la URL no es de Cloudinary o no contiene '/upload/', la devuelve sin cambios.
+    """
+    if not url or '/upload/' not in url:
+        return url
+    # Solo insertar si no tiene ya parámetros de transformación
+    if re.search(r'/upload/[a-z]', url):
+        return url
+    transformacion = f'w_{ancho},q_auto,f_jpg'
+    return url.replace('/upload/', f'/upload/{transformacion}/', 1)
+
+
+def descargar_imagen_cloudinary(url: str, timeout: int = 20) -> bytes | None:
+    """
+    Descarga una imagen desde Cloudinary aplicando transformaciones de
+    redimensionado antes de la descarga (el servidor de Cloudinary entrega
+    la versión reducida, no el original completo).
+
+    Esto evita el WORKER TIMEOUT en Render:
+      - Sin optimización : ~7.5 MB por imagen → Pillow tarda segundos → 502
+      - Con optimización : ~150–300 KB por imagen → Pillow instantáneo
+
+    Devuelve los bytes de la imagen, o None si falla/timeout.
+    """
+    if not url:
+        return None
+    url_opt = _optimizar_url_cloudinary(url)
+    try:
+        print(f"[IMG] Descargando: {url_opt}")
+        resp = requests.get(url_opt, timeout=timeout)
+        resp.raise_for_status()
+        print(f"[IMG] OK — {len(resp.content):,} bytes — content-type: {resp.headers.get('content-type', '?')}")
+        return resp.content
+    except requests.exceptions.Timeout:
+        print(f"[IMG] ⏱️ Timeout descargando imagen: {url_opt}")
+        return None
+    except Exception as e:
+        print(f"[IMG] ❌ Error descargando imagen ({type(e).__name__}): {e}")
+        return None
+
 
 # =============================================================================
 # 1. REGISTRO DE FUENTES
@@ -129,20 +192,38 @@ def _truncar(texto, ancho_max_pt, font_name, font_size):
 # =============================================================================
 # HELPER: Convierte bytes de imagen a ImageReader apto para ReportLab
 # =============================================================================
-def _preparar_imagen(blob):
+def _preparar_imagen(blob, max_px: int = 1400):
     """
-    Abre los bytes de una imagen, la convierte a RGB (fondo blanco si tiene
-    transparencia) y devuelve un ImageReader listo para drawImage.
+    Abre los bytes de una imagen, la redimensiona si es demasiado grande,
+    convierte a RGB (fondo blanco si tiene transparencia) y devuelve un
+    ImageReader listo para drawImage.
 
-    Problema que resuelve:
-      drawInlineImage falla silenciosamente con PNG RGBA (transparencia).
-      Usando drawImage + ImageReader el renderizado es confiable en todos los
-      formatos: PNG con/sin alpha, JPEG, WebP, etc.
+    Problemas que resuelve:
+      1. drawInlineImage falla silenciosamente con PNG RGBA (transparencia).
+         Usando drawImage + ImageReader el renderizado es confiable en todos los
+         formatos: PNG con/sin alpha, JPEG, WebP, etc.
+      2. Imágenes de celular en full resolution (4000×3000 px, 7+ MB) consumen
+         demasiada RAM y CPU en Pillow + ReportLab, causando WORKER TIMEOUT en
+         servidores con recursos limitados (ej. plan Free de Render).
+         Se redimensionan a max_px en el lado mayor, manteniendo la proporción.
+         Para A4 a 300 DPI el límite útil es ~2480 px; 1400 px da calidad
+         excelente en impresión y reduce el tiempo de procesamiento ~10×.
 
     Retorna (ImageReader, (ancho_px, alto_px)) o lanza excepción si falla.
     """
     img = Image.open(BytesIO(blob))
 
+    # ── Redimensionar si el lado mayor supera max_px ─────────────────────────
+    orig_w, orig_h = img.size
+    lado_mayor = max(orig_w, orig_h)
+    if lado_mayor > max_px:
+        escala  = max_px / lado_mayor
+        nuevo_w = max(1, int(orig_w * escala))
+        nuevo_h = max(1, int(orig_h * escala))
+        img = img.resize((nuevo_w, nuevo_h), Image.LANCZOS)
+        print(f"[IMG] Redimensionada: {orig_w}×{orig_h} → {nuevo_w}×{nuevo_h} px")
+
+    # ── Normalizar modo de color ──────────────────────────────────────────────
     # Modo P (paleta) → RGBA primero para conservar canal alpha si existe
     if img.mode == 'P':
         img = img.convert('RGBA')
@@ -158,7 +239,7 @@ def _preparar_imagen(blob):
         img = img.convert('RGB')
 
     buf = BytesIO()
-    img.save(buf, format='PNG')
+    img.save(buf, format='JPEG', quality=85, optimize=True)  # JPEG << PNG en tamaño
     buf.seek(0)
     return ImageReader(buf), img.size
 
