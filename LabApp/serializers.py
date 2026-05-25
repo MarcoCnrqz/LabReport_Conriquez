@@ -675,20 +675,29 @@ class AnalisisSerializer(serializers.ModelSerializer):
 
     def _subir_imagenes_cloudinary(self, analisis, imagen1, imagen2):
         """
-        FIX BUG #1 — centraliza la subida a Cloudinary FUERA de la transacción.
+        Sube imágenes a Cloudinary FUERA de la transacción usando
+        cloudinary.uploader.upload() directamente.
 
-        Flujo:
-          1. Asigna la imagen al campo del modelo.
-          2. Llama a analisis.save(update_fields=[campo]).
-          3. Si falla:
-             - Resetea el campo a None para evitar estado inconsistente.
-             - Registra el error por nombre de excepción y mensaje.
-             - NO relanza: el análisis ya está guardado sin imagen.
-          4. Si tiene éxito, el campo queda con el CloudinaryResource/public_id.
+        Por qué NO usamos save(update_fields=[campo]) con CloudinaryField:
+          - CloudinaryField.pre_save() detecta si el campo cambió comparando
+            el objeto actual con el valor guardado en BD. Con update_fields,
+            a veces no detecta el cambio y omite el upload silenciosamente.
+            El análisis queda guardado pero imagen_resultado1/2 = None en BD.
 
-        Devuelve lista de campos que se subieron exitosamente (puede ser vacía).
+        Flujo correcto:
+          1. Leer los bytes crudos del ContentFile (o archivo en memoria).
+          2. Llamar cloudinary.uploader.upload(bytes, ...) — siempre sube.
+          3. Guardar el public_id resultante en el campo del modelo.
+          4. Llamar save(update_fields=[campo]) para persistir SOLO el public_id
+             (un string), no el archivo — en este punto pre_save() no interfiere
+             porque ya no hay un archivo pendiente, solo un string.
+          5. Si falla en cualquier paso: resetear campo a None y continuar.
+             El análisis queda guardado sin imagen; no se lanza excepción.
+
+        Devuelve lista de campos subidos exitosamente (puede ser vacía).
         """
         import traceback as _tb
+        import cloudinary.uploader
 
         campos_exitosos = []
 
@@ -696,24 +705,51 @@ class AnalisisSerializer(serializers.ModelSerializer):
             if not imagen:
                 continue
 
+            # ── Paso 1: Obtener bytes del archivo ──────────────────────────────
             try:
-                setattr(analisis, campo, imagen)
+                # ContentFile y los archivos de Django exponen .read()
+                # Algunos ya están al final del stream: seek(0) primero.
+                if hasattr(imagen, 'seek'):
+                    imagen.seek(0)
+                file_bytes = imagen.read()
+                if not file_bytes:
+                    print(f"  [Serializer] ⚠️ {campo}: archivo vacío, se omite.")
+                    continue
             except Exception as e:
-                print(f"  [Serializer] ⚠️ No se pudo asignar {campo}: {type(e).__name__}: {e}")
+                print(f"  [Serializer] ⚠️ {campo} — no se pudo leer el archivo: {type(e).__name__}: {e}")
                 continue
 
+            # ── Paso 2: Upload directo a Cloudinary ────────────────────────────
             try:
+                resultado_cloudinary = cloudinary.uploader.upload(
+                    file_bytes,
+                    folder='resultados_imagenes',
+                    resource_type='image',
+                )
+                public_id = resultado_cloudinary.get('public_id')
+                if not public_id:
+                    raise ValueError(
+                        f"Cloudinary no devolvió public_id. Respuesta: {resultado_cloudinary}"
+                    )
+                print(f"  [Serializer] ✅ {campo} subido a Cloudinary — public_id: {public_id}")
+            except Exception as e:
+                _tb.print_exc()
+                print(f"  [Serializer] ❌ cloudinary.uploader.upload falló en {campo}: {type(e).__name__}: {e}")
+                # No asignamos nada al campo; queda None en BD (estado limpio).
+                continue
+
+            # ── Paso 3: Guardar el public_id en el modelo ──────────────────────
+            # Asignamos el string directamente. CloudinaryField almacena public_id
+            # como CharField interno; al hacer save() solo persiste el string,
+            # pre_save() no intenta re-subir porque ya no hay ContentFile.
+            try:
+                setattr(analisis, campo, public_id)
                 analisis.save(update_fields=[campo])
-                print(f"  [Serializer] ✅ {campo} subido a Cloudinary.")
                 campos_exitosos.append(campo)
             except Exception as e:
                 _tb.print_exc()
-                print(f"  [Serializer] ❌ Cloudinary upload falló en {campo}: {type(e).__name__}: {e}")
-                # ── CRÍTICO: resetear a None ──────────────────────────────────────
-                # Si no se resetea, analisis.campo queda con el ContentFile en
-                # memoria. Al serializar la respuesta, Base64ImageField intenta
-                # CloudinaryResource(ContentFile) o accede a value.url → excepción
-                # no AttributeError → no capturada por DRF → HTTP 500.
+                print(f"  [Serializer] ❌ No se pudo guardar public_id de {campo} en BD: {type(e).__name__}: {e}")
+                # Resetear en memoria para que to_representation() no explote
                 try:
                     setattr(analisis, campo, None)
                 except Exception:
