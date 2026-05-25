@@ -23,8 +23,17 @@ SECRET_KEY = os.environ.get(
     'django-insecure-o^-c3$bfs+wt)dvk$y#5gq8(tigycm#()iq6^hz_uercc+y9+b'
 )
 
-DEBUG = os.environ.get('DJANGO_DEBUG', 'False') == 'False'
-# DEBUG = True  # ← Solo activar en desarrollo local; en producción usa la variable de entorno DJANGO_DEBUG=False
+# FIX BUG #2: lógica corregida.
+# La versión anterior tenía la comparación invertida:
+#   os.environ.get('DJANGO_DEBUG', 'False') == 'False'
+# Eso hacía que DEBUG = True SIEMPRE en producción (cuando la var no está seteada),
+# exponiendo tracebacks completos con datos sensibles.
+#
+# Correcto:
+#   - Sin var de entorno  → 'False' == 'True' → False  ✓  (producción segura)
+#   - DJANGO_DEBUG=True   → 'True'  == 'True' → True   ✓  (desarrollo)
+#   - DJANGO_DEBUG=False  → 'False' == 'True' → False  ✓  (producción)
+DEBUG = os.environ.get('DJANGO_DEBUG', 'False') == 'True'
 
 ALLOWED_HOSTS = os.environ.get(
     'DJANGO_ALLOWED_HOSTS',
@@ -171,7 +180,21 @@ CLOUDINARY_STORAGE = {
     'API_SECRET': os.environ.get('CLOUDINARY_API_SECRET'),
 }
 
-
+# FIX BUG #1 — CRÍTICO: configurar el SDK oficial de Cloudinary con credenciales.
+#
+# Por qué se necesita aunque CLOUDINARY_STORAGE ya esté definido:
+#   - CLOUDINARY_STORAGE  → lo usa django-cloudinary-storage (FileField/ImageField estándar).
+#   - cloudinary.config() → lo usa cloudinary.models.CloudinaryField (el que usa models.py).
+#
+# Sin esta llamada, CloudinaryField.pre_save() no tiene credenciales y el upload
+# a Cloudinary falla silenciosamente: las imágenes se quedan sin subir, la nube
+# devuelve imagen_resultado1/2 = null aunque localmente parezca guardado bien.
+cloudinary.config(
+    cloud_name = os.environ.get('CLOUDINARY_CLOUD_NAME'),
+    api_key    = os.environ.get('CLOUDINARY_API_KEY'),
+    api_secret = os.environ.get('CLOUDINARY_API_SECRET'),
+    secure     = True,   # Siempre HTTPS en las URLs generadas
+)
 
 # ======================================================================
 # CONFIGURACIÓN NUEVA (ESTO SOLUCIONA TU PROBLEMA)
