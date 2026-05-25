@@ -3,6 +3,7 @@ from .models import (
     Paciente, Laboratorio, Analisis, ResultadoAnalisis,
     Plantilla, PlantillaPropiedad,
     Propiedad, IntervaloReferencia, LoincCode, Usuario,
+    AnalisisPropiedadExtra,          # ← FIX BUG #2: necesario para through model
 )
 import base64
 import uuid
@@ -15,11 +16,24 @@ from django.db import IntegrityError
 # ======================================================
 
 class Base64ImageField(serializers.ImageField):
+    """
+    Campo de imagen que acepta:
+      - Escritura : data-URI base64 ("data:image/jpeg;base64,...")
+      - Lectura   : URL absoluta de Cloudinary
+
+    FIX BUG #3 — to_representation sobreescrito:
+      Sin esta sobreescritura, DRF usaba FileField.to_representation que
+      intenta value.url y captura SOLO AttributeError. Cloudinary y otros
+      backends pueden lanzar excepciones distintas (cloudinary.exceptions.Error,
+      ValueError, etc.) que se filtraban hacia Django como error 500.
+      Ahora capturamos cualquier Exception y devolvemos None en vez de 500.
+    """
+
     def to_internal_value(self, data):
         if isinstance(data, str) and data.startswith('data:image'):
             try:
-                format, imgstr = data.split(';base64,')
-                ext  = format.split('/')[-1]
+                format_part, imgstr = data.split(';base64,')
+                ext  = format_part.split('/')[-1]
                 uid  = uuid.uuid4()
                 data = ContentFile(base64.b64decode(imgstr), name=f"{uid}.{ext}")
             except Exception as e:
@@ -27,6 +41,48 @@ class Base64ImageField(serializers.ImageField):
                     f"Error decodificando imagen Base64: {str(e)}"
                 )
         return super().to_internal_value(data)
+
+    def to_representation(self, value):
+        """
+        FIX BUG #3:
+          Antes : FileField.to_representation solo capturaba AttributeError en
+                  value.url → Cloudinary podía lanzar otros errores → 500.
+          Ahora : capturamos cualquier Exception y devolvemos None.
+
+        Orden de prioridad:
+          1. None / vacío           → None
+          2. CloudinaryResource     → .url (Cloudinary SDK)
+          3. String (public_id)     → construir URL de Cloudinary con cloudinary.utils
+          4. ContentFile (fallback) → None (upload fallido; análisis guardado sin imagen)
+        """
+        if not value:
+            return None
+
+        # Caso 1: objeto CloudinaryResource (subida exitosa con sdk cloudinary)
+        if hasattr(value, 'url'):
+            try:
+                url = value.url
+                request = self.context.get('request')
+                if request is not None:
+                    return request.build_absolute_uri(url)
+                return url
+            except Exception:
+                pass
+
+        # Caso 2: string con public_id almacenado en BD (CharField de Cloudinary)
+        if isinstance(value, str) and value:
+            try:
+                import cloudinary
+                url = cloudinary.utils.cloudinary_url(value)[0]
+                if url:
+                    return url
+            except Exception:
+                pass
+            # Fallback: devolver el public_id para que el cliente pueda construir la URL
+            return value
+
+        # Caso 3: ContentFile u objeto sin URL (upload fallido, ya capturado localmente)
+        return None
 
 
 # ======================================================
@@ -554,21 +610,18 @@ class AnalisisSerializer(serializers.ModelSerializer):
       - imagen_resultado1/2 se declaran como Base64ImageField para que:
           ESCRITURA: el cliente envíe base64 data-URI → se sube a Cloudinary
           LECTURA:   se devuelva la URL de Cloudinary (use_url=True)
-      - Sin esta declaración, DRF usaría el serializador por defecto de
-        CloudinaryField, que no acepta base64 como entrada.
 
-    ALINEACIÓN CON DJANGO:
-      - loinc_code en ResultadoAnalisis se obtiene de PlantillaPropiedad,
-        NO de Propiedad (que no tiene esa FK en el modelo).
+    FIXES APLICADOS:
+      - BUG #1: imágenes extraídas antes de la transacción para evitar que
+                Cloudinary falle DENTRO del atomic block. El upload ocurre
+                FUERA, en try/except con reset de campo ante fallo.
+      - BUG #2: propiedades_extra usa AnalisisPropiedadExtra.objects en lugar
+                de .set() (Django prohíbe .set() en M2M con through model).
+      - BUG #3: Base64ImageField.to_representation() sobreescrito para capturar
+                cualquier excepción del SDK Cloudinary y evitar 500.
     """
     resultados = ResultadoSerializer(many=True, read_only=True)
 
-    # FIX CRÍTICO: declarar imagen_resultado1/2 como Base64ImageField.
-    # models.py: CloudinaryField('image', null=True, blank=True)
-    # Sin esta declaración, DRF usa el serializador por defecto del
-    # CloudinaryField que espera un archivo (multipart), NO base64.
-    # El cliente escr. envía: "imagen_resultado1": "data:image/jpeg;base64,..."
-    # use_url=True → en GET devuelve la URL de Cloudinary, no el public_id.
     imagen_resultado1 = Base64ImageField(
         max_length=None, use_url=True, required=False, allow_null=True
     )
@@ -595,10 +648,9 @@ class AnalisisSerializer(serializers.ModelSerializer):
         write_only=True,
         required=False,
         default=list,
-        # FIX: NO usar source='resultados' — conflicto con el campo read-only
+        # NO usar source='resultados' — conflicto con el campo read-only
         # 'resultados = ResultadoSerializer(...)' que comparte el mismo accessor.
         # DRF lanza ImproperlyConfigured cuando dos campos apuntan al mismo source.
-        # El create() y update() ahora extraen 'resultados_input' directamente.
     )
 
     class Meta:
@@ -621,57 +673,140 @@ class AnalisisSerializer(serializers.ModelSerializer):
         except PlantillaPropiedad.DoesNotExist:
             return None
 
+    def _subir_imagenes_cloudinary(self, analisis, imagen1, imagen2):
+        """
+        FIX BUG #1 — centraliza la subida a Cloudinary FUERA de la transacción.
+
+        Flujo:
+          1. Asigna la imagen al campo del modelo.
+          2. Llama a analisis.save(update_fields=[campo]).
+          3. Si falla:
+             - Resetea el campo a None para evitar estado inconsistente.
+             - Registra el error por nombre de excepción y mensaje.
+             - NO relanza: el análisis ya está guardado sin imagen.
+          4. Si tiene éxito, el campo queda con el CloudinaryResource/public_id.
+
+        Devuelve lista de campos que se subieron exitosamente (puede ser vacía).
+        """
+        import traceback as _tb
+
+        campos_exitosos = []
+
+        for campo, imagen in [('imagen_resultado1', imagen1), ('imagen_resultado2', imagen2)]:
+            if not imagen:
+                continue
+
+            try:
+                setattr(analisis, campo, imagen)
+            except Exception as e:
+                print(f"  [Serializer] ⚠️ No se pudo asignar {campo}: {type(e).__name__}: {e}")
+                continue
+
+            try:
+                analisis.save(update_fields=[campo])
+                print(f"  [Serializer] ✅ {campo} subido a Cloudinary.")
+                campos_exitosos.append(campo)
+            except Exception as e:
+                _tb.print_exc()
+                print(f"  [Serializer] ❌ Cloudinary upload falló en {campo}: {type(e).__name__}: {e}")
+                # ── CRÍTICO: resetear a None ──────────────────────────────────────
+                # Si no se resetea, analisis.campo queda con el ContentFile en
+                # memoria. Al serializar la respuesta, Base64ImageField intenta
+                # CloudinaryResource(ContentFile) o accede a value.url → excepción
+                # no AttributeError → no capturada por DRF → HTTP 500.
+                try:
+                    setattr(analisis, campo, None)
+                except Exception:
+                    pass
+
+        return campos_exitosos
+
+    def _asignar_propiedades_extra(self, analisis, nombres_extra):
+        """
+        FIX BUG #2 — reemplaza analisis.propiedades_extra.set() que Django prohíbe
+        en M2M con through model (AnalisisPropiedadExtra).
+
+        Django lanza:
+          AttributeError: Cannot use set() on a ManyToManyField which specifies
+          an intermediary model. Use AnalisisPropiedadExtra's Manager instead.
+
+        Solución: usar bulk_create con ignore_conflicts=True para ser idempotente
+        y no duplicar si la señal post_save ya creó algún registro.
+        """
+        if not nombres_extra:
+            return
+
+        props_qs = Propiedad.objects.filter(nombre_propiedad__in=nombres_extra)
+        if not props_qs.exists():
+            return
+
+        # IDs que ya existen para no violar UNIQUE (analisis, propiedad)
+        ids_existentes = set(
+            AnalisisPropiedadExtra.objects
+            .filter(analisis=analisis)
+            .values_list('propiedad_id', flat=True)
+        )
+
+        nuevos = [
+            AnalisisPropiedadExtra(analisis=analisis, propiedad=prop)
+            for prop in props_qs
+            if prop.pk not in ids_existentes
+        ]
+
+        if nuevos:
+            AnalisisPropiedadExtra.objects.bulk_create(nuevos, ignore_conflicts=True)
+            print(f"  [Serializer] {len(nuevos)} propiedad(es) extra asignadas a análisis {analisis.pk}.")
+
     def create(self, validated_data):
         from django.db import transaction
         from django.db.utils import DataError as DjangoDataError
         import traceback
 
+        # ── 1. Extraer campos especiales antes de la transacción ────────────────
         resultados_data   = validated_data.pop('resultados_input', [])
         nombres_extra     = validated_data.pop('nombres_propiedades_extra', [])
         nombres_excluidas = validated_data.pop('nombres_propiedades_excluidas', [])
 
-        # ── FIX: extraer imágenes ANTES de la transacción ──────────────────────
-        # Cloudinary sube el archivo en analisis.save(). Si falla adentro de
-        # atomic() el rollback borra el análisis. Sacando las imágenes aquí
-        # se sube a Cloudinary fuera de la transacción de BD.
+        # FIX BUG #1: extraer imágenes ANTES de la transacción.
+        # Si se dejan dentro, Cloudinary falla DENTRO del atomic block y el
+        # except convierte el error en ValidationError (400), pero la imagen
+        # queda sin subir y sin registro de fallo visible al cliente.
         imagen1 = validated_data.pop('imagen_resultado1', None)
         imagen2 = validated_data.pop('imagen_resultado2', None)
 
-        # FIX: fecha_analisis — normalizar a solo fecha (DATE) por si el cliente
-        # envía un string datetime completo "YYYY-MM-DD HH:MM:SS".
-        # Si el modelo usa DateField, PostgreSQL rechaza el componente de hora.
+        # Normalizar fecha_analisis (DateField): quitar componente hora si viene
+        # como datetime completo "YYYY-MM-DD HH:MM:SS" desde el cliente.
         if 'fecha_analisis' in validated_data and validated_data['fecha_analisis']:
             fecha_val = validated_data['fecha_analisis']
-            if hasattr(fecha_val, 'date'):          # es datetime → quitar hora
+            if hasattr(fecha_val, 'date'):
                 validated_data['fecha_analisis'] = fecha_val.date()
 
+        # ── 2. Guardar análisis y resultados en transacción ─────────────────────
         try:
             with transaction.atomic():
-                # FIX: propiedades_excluidas es ManyToManyField sin through-model.
-                # Con fields='__all__', DRF puede incluirlo en validated_data como
-                # lista vacía cuando el cliente no lo envía (default de ManyRelatedField).
-                # Pasarlo a Analisis(**validated_data) falla con:
-                # "Direct assignment to M2M is prohibited. Use .set() instead."
-                # Lo extraemos aquí para pasarlo con .set() después del .save().
+                # propiedades_excluidas es M2M sin through-model, DRF puede incluirla
+                # en validated_data como lista vacía. Pasarla a Analisis(**validated_data)
+                # falla con "Direct assignment to M2M is prohibited. Use .set()".
                 excluidas_desde_payload = validated_data.pop('propiedades_excluidas', None)
 
-                # _desde_api se asigna DESPUÉS de construir el objeto, no como kwarg
-                # (pasarlo en validated_data causaría TypeError en el constructor de Django)
                 analisis = Analisis(**validated_data)
                 analisis._desde_api = True
-                analisis.save()   # ← sin imágenes; no hay riesgo de Cloudinary acá
+                analisis.save()  # ← SIN imágenes; Cloudinary no se invoca aquí
 
-                if nombres_extra:
-                    analisis.propiedades_extra.set(
-                        Propiedad.objects.filter(nombre_propiedad__in=nombres_extra)
-                    )
-                # Combinar excluidas del payload con las del campo nombres_propiedades_excluidas
-                excluidas_qs = Propiedad.objects.filter(nombre_propiedad__in=nombres_excluidas) if nombres_excluidas else None
+                # ── FIX BUG #2: usar método correcto para M2M con through model ──
+                self._asignar_propiedades_extra(analisis, nombres_extra)
+
+                # Propiedades excluidas (M2M simple, .set() SÍ está permitido)
+                excluidas_qs = (
+                    Propiedad.objects.filter(nombre_propiedad__in=nombres_excluidas)
+                    if nombres_excluidas else None
+                )
                 if excluidas_desde_payload is not None:
                     analisis.propiedades_excluidas.set(excluidas_desde_payload)
                 elif excluidas_qs is not None:
                     analisis.propiedades_excluidas.set(excluidas_qs)
 
+                # ── Crear ResultadoAnalisis ──────────────────────────────────────
                 for res_data in resultados_data:
                     nombre_prop = (res_data.get('nombre_propiedad') or '').strip()
                     valor       = str(res_data.get('valor') or '')
@@ -680,11 +815,7 @@ class AnalisisSerializer(serializers.ModelSerializer):
                     if not nombre_prop:
                         continue
 
-                    # FIX: truncar al max_length real del modelo para evitar DataError
-                    # Propiedad.nombre_propiedad  max_length=100
-                    # ResultadoAnalisis.valor      max_length=100
-                    # ResultadoAnalisis.unidad     max_length=20
-                    # Propiedad.unidad             max_length=20
+                    # Truncar al max_length del modelo para evitar DataError
                     nombre_prop = nombre_prop[:100]
                     valor       = valor[:100]
                     unidad      = unidad[:20]
@@ -695,7 +826,6 @@ class AnalisisSerializer(serializers.ModelSerializer):
                         ).first()
 
                         if not propiedad_obj:
-                            # Propiedad.unidad max_length=20
                             propiedad_obj = Propiedad.objects.create(
                                 nombre_propiedad=nombre_prop,
                                 unidad=(unidad or '')[:20],
@@ -710,15 +840,9 @@ class AnalisisSerializer(serializers.ModelSerializer):
                             print(f"  [Serializer] ⚠️ Propiedad '{nombre_prop}' — skip: {e}")
                             continue
 
-                    nombre_para_guardar = nombre_prop or propiedad_obj.nombre_propiedad
-
-                    # loinc_code viene de PlantillaPropiedad, no de Propiedad
-                    loinc_obj = self._obtener_loinc_para_resultado(analisis, propiedad_obj)
-
-                    # Respetar max_length de ResultadoAnalisis.nombre_propiedad (100)
-                    # y ResultadoAnalisis.unidad (20)
+                    loinc_obj        = self._obtener_loinc_para_resultado(analisis, propiedad_obj)
                     unidad_resultado = (unidad or propiedad_obj.unidad or '')[:20]
-                    nombre_guardar   = nombre_para_guardar[:100]
+                    nombre_guardar   = (nombre_prop or propiedad_obj.nombre_propiedad)[:100]
 
                     resultado_obj, created = ResultadoAnalisis.objects.get_or_create(
                         analisis=analisis,
@@ -740,61 +864,43 @@ class AnalisisSerializer(serializers.ModelSerializer):
                         resultado_obj.save()
 
         except DjangoDataError as e:
-            # Relanzar como error de validación para que DRF devuelva 400 (no 500)
+            # Relanzar como 400 para que DRF no devuelva 500
             raise serializers.ValidationError({
                 'error': f'Error de datos al guardar el análisis: {e}',
                 'hint':  'Verifica el formato de fecha, hora, o longitud de los valores.',
             })
         except Exception as e:
-            # ── FIX: atrapar cualquier excepción (incluyendo errores de Cloudinary)
-            # y devolverla como 400 en lugar de dejar que Django devuelva 500.
             traceback.print_exc()
             raise serializers.ValidationError({
                 'error': f'Error al guardar el análisis ({type(e).__name__}): {str(e)}',
             })
 
-        # ── Subir imágenes a Cloudinary FUERA de la transacción ─────────────────
-        # Si falla la subida aquí, el análisis ya está guardado en BD y se puede
-        # reintentar subir las imágenes sin perder los resultados.
-        campos_img = []
-        if imagen1:
-            try:
-                analisis.imagen_resultado1 = imagen1
-                campos_img.append('imagen_resultado1')
-            except Exception as e:
-                print(f"  [Serializer] ⚠️ No se pudo asignar imagen1: {e}")
-        if imagen2:
-            try:
-                analisis.imagen_resultado2 = imagen2
-                campos_img.append('imagen_resultado2')
-            except Exception as e:
-                print(f"  [Serializer] ⚠️ No se pudo asignar imagen2: {e}")
-        if campos_img:
-            try:
-                analisis.save(update_fields=campos_img)
-                print(f"  [Serializer] ✅ Imágenes subidas a Cloudinary: {campos_img}")
-            except Exception as e:
-                traceback.print_exc()
-                print(f"  [Serializer] ❌ Cloudinary upload falló: {type(e).__name__}: {e}")
-                # No relanzar — el análisis está guardado aunque sin imágenes.
-                # El cliente puede reintentar o ver el análisis sin fotos.
+        # ── 3. Subir imágenes a Cloudinary FUERA de la transacción ─────────────
+        # FIX BUG #1: upload aquí evita que un fallo de Cloudinary haga rollback
+        # del análisis completo. Si falla, el análisis queda guardado sin imagen.
+        # _subir_imagenes_cloudinary resetea el campo a None si falla, evitando
+        # que el ContentFile llegue al serializer de respuesta y genere HTTP 500.
+        self._subir_imagenes_cloudinary(analisis, imagen1, imagen2)
 
         return analisis
 
     def update(self, instance, validated_data):
-        # FIX: igual que create(), extraer por nombre propio del campo.
         resultados_data   = validated_data.pop('resultados_input', None)
         nombres_extra     = validated_data.pop('nombres_propiedades_extra', None)
         nombres_excluidas = validated_data.pop('nombres_propiedades_excluidas', None)
+
+        # Extraer imágenes para subirlas correctamente después del save principal
+        imagen1 = validated_data.pop('imagen_resultado1', None)
+        imagen2 = validated_data.pop('imagen_resultado2', None)
 
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()
 
+        # FIX BUG #2: usar método correcto para M2M con through model
         if nombres_extra is not None:
-            instance.propiedades_extra.set(
-                Propiedad.objects.filter(nombre_propiedad__in=nombres_extra)
-            )
+            self._asignar_propiedades_extra(instance, nombres_extra)
+
         if nombres_excluidas is not None:
             instance.propiedades_excluidas.set(
                 Propiedad.objects.filter(nombre_propiedad__in=nombres_excluidas)
@@ -822,6 +928,9 @@ class AnalisisSerializer(serializers.ModelSerializer):
                     if nombre_prop:
                         resultado_existente.nombre_propiedad = nombre_prop
                     resultado_existente.save()
+
+        # FIX BUG #1: subir imágenes con el mismo mecanismo seguro
+        self._subir_imagenes_cloudinary(instance, imagen1, imagen2)
 
         return instance
 
